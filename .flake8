@@ -1,0 +1,4 @@
+[flake8]
+exclude = .venv,llm_sdk
+max-line-length = 88
+jobs = 1
