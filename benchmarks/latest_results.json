@@ -1,0 +1,17 @@
+{
+  "model": "Qwen/Qwen3-0.6B",
+  "cases": 4,
+  "valid_outputs": 4,
+  "correct_functions": 4,
+  "correct_arguments": 4,
+  "fully_correct": 4,
+  "json_validity": 1.0,
+  "schema_validity": 1.0,
+  "function_accuracy": 1.0,
+  "argument_accuracy": 1.0,
+  "full_accuracy": 1.0,
+  "duration_seconds": 348.502,
+  "peak_memory_mib": 5120.52,
+  "meets_subject_targets": false,
+  "failures": []
+}

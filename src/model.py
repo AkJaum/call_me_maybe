@@ -1,8 +1,9 @@
 """Public llm_sdk adapter for the required Qwen model."""
 
-from dataclasses import dataclass
 from importlib import import_module
 from typing import Any, cast
+
+from pydantic import BaseModel, ConfigDict, PrivateAttr
 
 
 DEFAULT_MODEL = "Qwen/Qwen3-0.6B"
@@ -12,12 +13,13 @@ class ModelLoadError(RuntimeError):
     """Report a model or SDK initialization failure."""
 
 
-@dataclass
-class QwenClient:
+class QwenClient(BaseModel):
     """Expose only the public SDK operations needed by constrained decoding."""
 
+    model_config = ConfigDict(arbitrary_types_allowed=True)
+
     model_name: str = DEFAULT_MODEL
-    _sdk: Any = None
+    _sdk: Any = PrivateAttr(default=None)
 
     def load(self) -> None:
         """Load the SDK lazily so input validation does not download a model."""

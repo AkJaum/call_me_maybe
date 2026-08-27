@@ -1,18 +1,24 @@
 PYTHON := uv run python
 
-.PHONY: install run debug clean lint lint-strict test model-check
+.PHONY: install run debug clean lint lint-strict test model-check benchmark visualize
 
 install:
 	uv sync
 
 run:
-	$(PYTHON) -m src --validate-only
+	$(PYTHON) -m src
 
 debug:
-	$(PYTHON) -m pdb -m src --validate-only
+	$(PYTHON) -m pdb -m src
 
 model-check:
 	$(PYTHON) -m src --inspect-model
+
+benchmark:
+	$(PYTHON) -m src.benchmark
+
+visualize:
+	$(PYTHON) -m src --visualize data/output/generation_trace.html
 
 test:
 	uv run pytest

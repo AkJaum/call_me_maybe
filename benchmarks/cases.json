@@ -1,0 +1,22 @@
+[
+  {
+    "prompt": "Add -123456789 and 0",
+    "expected_name": "fn_add_numbers",
+    "expected_parameters": {"a": -123456789, "b": 0}
+  },
+  {
+    "prompt": "What is 3.5 plus -2.25?",
+    "expected_name": "fn_add_numbers",
+    "expected_parameters": {"a": 3.5, "b": -2.25}
+  },
+  {
+    "prompt": "Could you welcome María?",
+    "expected_name": "fn_greet",
+    "expected_parameters": {"name": "María"}
+  },
+  {
+    "prompt": "Say hello to Jean-Luc.",
+    "expected_name": "fn_greet",
+    "expected_parameters": {"name": "Jean-Luc"}
+  }
+]
