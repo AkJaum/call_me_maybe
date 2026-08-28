@@ -5,7 +5,11 @@ import json
 import pytest
 from pydantic import ValidationError
 
-from src.grammar import FunctionCallGrammar, PrefixStatus
+from src.grammar import (
+    CompactFunctionCallGrammar,
+    FunctionCallGrammar,
+    PrefixStatus,
+)
 from src.models import FunctionDefinition, TypeDefinition
 
 
@@ -118,3 +122,25 @@ def test_grammar_accepts_scalar_edge_cases(value_type: str, value: str) -> None:
     document = f'{{"name":"fn_value","parameters":{{"value":{value}}}}}'
     grammar = FunctionCallGrammar(functions=(function,)).advance(document)
     assert grammar.status() is PrefixStatus.COMPLETE
+
+
+def test_compact_grammar_maps_function_index_and_positional_types() -> None:
+    """Constrain a shorter internal call without losing dynamic schema checks."""
+    add = make_function("fn_add", a=TypeDefinition(type="number"))
+    greet = make_function("fn_greet", name=TypeDefinition(type="string"))
+    grammar = CompactFunctionCallGrammar(functions=(add, greet))
+
+    assert grammar.can_accept('["fn_add",2.5]')
+    assert grammar.can_accept('["fn_greet","Ada"]')
+    assert not grammar.can_accept('["fn_add","Ada"]')
+    assert not grammar.can_accept('["fn_greet",2.5]')
+    assert not grammar.can_accept('["fn_missing","Ada"]')
+
+
+def test_compact_grammar_accepts_zero_argument_function() -> None:
+    """Complete a compact call containing only its dynamic function index."""
+    grammar = CompactFunctionCallGrammar(functions=(make_function("fn_ping"),))
+    complete = grammar.advance('["fn_ping"]')
+
+    assert complete.status() is PrefixStatus.COMPLETE
+    assert not complete.can_accept(" ")

@@ -6,7 +6,10 @@ from typing import Self
 
 from pydantic import BaseModel, ConfigDict, Field, PrivateAttr, model_validator
 
-from src.grammar import FunctionCallGrammar
+from src.grammar import CompactFunctionCallGrammar, FunctionCallGrammar
+
+
+Grammar = FunctionCallGrammar | CompactFunctionCallGrammar
 
 
 class VocabularyError(ValueError):
@@ -35,6 +38,11 @@ class TokenVocabulary(BaseModel):
     )
     _cache_hits: int = PrivateAttr(default=0)
     _cache_misses: int = PrivateAttr(default=0)
+    _first_character_index: dict[str, tuple[int, ...]] = PrivateAttr(
+        default_factory=dict
+    )
+    _plain_string_ids: tuple[int, ...] = PrivateAttr(default=())
+    _special_string_ids: tuple[int, ...] = PrivateAttr(default=())
 
     @model_validator(mode="after")
     def validate_fragments(self) -> Self:
@@ -44,6 +52,24 @@ class TokenVocabulary(BaseModel):
         if any(not fragment for fragment in self.fragments.values()):
             raise ValueError("token fragments must not be empty")
         return self
+
+    def model_post_init(self, __context: object) -> None:
+        """Index token categories once instead of scanning the full vocabulary."""
+        first_character_index: dict[str, list[int]] = {}
+        plain_string_ids: list[int] = []
+        special_string_ids: list[int] = []
+        for token_id, fragment in self.fragments.items():
+            first_character_index.setdefault(fragment[0], []).append(token_id)
+            if _is_plain_string_fragment(fragment):
+                plain_string_ids.append(token_id)
+            else:
+                special_string_ids.append(token_id)
+        self._first_character_index = {
+            character: tuple(token_ids)
+            for character, token_ids in first_character_index.items()
+        }
+        self._plain_string_ids = tuple(plain_string_ids)
+        self._special_string_ids = tuple(special_string_ids)
 
     @classmethod
     def from_file(cls, path: Path) -> Self:
@@ -94,7 +120,7 @@ class TokenVocabulary(BaseModel):
         return cls(fragments=fragments, skipped_tokens=skipped)
 
     def allowed_token_ids(
-        self, grammar: FunctionCallGrammar, logits_count: int
+        self, grammar: Grammar, logits_count: int
     ) -> tuple[int, ...]:
         """Return token IDs whose complete fragments preserve the grammar."""
         if logits_count <= 0:
@@ -102,17 +128,46 @@ class TokenVocabulary(BaseModel):
         schema_key = "|".join(
             function.model_dump_json() for function in grammar.functions
         )
-        cache_key = (schema_key, grammar.prefix, logits_count)
+        cache_key = (
+            grammar.__class__.__name__ + ":" + schema_key,
+            grammar.prefix,
+            logits_count,
+        )
         cached = self._allowed_cache.get(cache_key)
         if cached is not None:
             self._cache_hits += 1
             return cached
         self._cache_misses += 1
-        allowed = tuple(
-            token_id
-            for token_id, fragment in self.fragments.items()
-            if token_id < logits_count and grammar.can_accept(fragment)
-        )
+        if grammar.is_inside_plain_string():
+            plain = (
+                token_id
+                for token_id in self._plain_string_ids
+                if token_id < logits_count
+            )
+            special = (
+                token_id
+                for token_id in self._special_string_ids
+                if token_id < logits_count
+                and grammar.can_accept(self.fragments[token_id])
+            )
+            allowed = tuple(plain) + tuple(special)
+        else:
+            valid_initials = {
+                character
+                for character in self._first_character_index
+                if grammar.can_accept(character)
+            }
+            candidates = (
+                token_id
+                for character in valid_initials
+                for token_id in self._first_character_index[character]
+            )
+            allowed = tuple(
+                token_id
+                for token_id in candidates
+                if token_id < logits_count
+                and grammar.can_accept(self.fragments[token_id])
+            )
         self._allowed_cache[cache_key] = allowed
         return allowed
 
@@ -152,3 +207,11 @@ def _decode_token(encoded_token: str, decoder: dict[str, int]) -> str | None:
         return raw_bytes.decode("utf-8")
     except (KeyError, UnicodeDecodeError):
         return None
+
+
+def _is_plain_string_fragment(fragment: str) -> bool:
+    """Recognize text that cannot close, escape, or invalidate a JSON string."""
+    return all(
+        character not in {'"', "\\"} and ord(character) >= 0x20
+        for character in fragment
+    )

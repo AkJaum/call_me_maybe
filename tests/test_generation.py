@@ -34,7 +34,7 @@ def make_client(
 
     def encode(text: str) -> MagicMock:
         """Encode prompts stably and forced fixture fragments greedily."""
-        if "Functions:" in text and "Request:" in text:
+        if "Request:" in text and "JSON:" in text:
             return make_encoding([99])
         position = 0
         token_ids: list[int] = []
@@ -51,12 +51,15 @@ def make_client(
             position += len(fragment)
         return make_encoding(token_ids)
 
+    logits_call = 0
+
     def get_logits(input_ids: list[int]) -> list[float]:
         """Prefer an invalid token globally and the planned valid token second."""
-        step = len(input_ids) - 1
+        nonlocal logits_call
         logits = [-10.0] * vocab_size
-        logits[7] = 100.0
-        logits[planned_ids[step]] = 10.0
+        logits[vocabulary["#"]] = 100.0
+        logits[planned_ids[logits_call % len(planned_ids)]] = 10.0
+        logits_call += 1
         return logits
 
     sdk.encode.side_effect = encode
@@ -82,22 +85,13 @@ def test_mask_sets_every_invalid_logit_to_negative_infinity() -> None:
 
 def test_decoder_uses_model_logits_but_blocks_invalid_choice(tmp_path: Path) -> None:
     """Generate a typed call while grammar-masking a higher invalid logit."""
-    fragments = [
-        '{"name":"',
-        "fn_add",
-        '","parameters":{"a":',
-        "2",
-        ',"b":',
-        "3",
-        "}}",
-        "#",
-    ]
+    fragments = ["2", "}}", "3", "#"]
     path = tmp_path / "vocab.json"
     path.write_text(
         json.dumps({fragment: index for index, fragment in enumerate(fragments)}),
         encoding="utf-8",
     )
-    client = make_client(path, planned_ids=list(range(7)), vocab_size=len(fragments))
+    client = make_client(path, planned_ids=[0, 1, 2, 1], vocab_size=len(fragments))
     decoder = ConstrainedDecoder.from_client(
         client,
         GenerationConfig(max_new_tokens=16),
@@ -116,31 +110,31 @@ def test_decoder_uses_model_logits_but_blocks_invalid_choice(tmp_path: Path) -> 
 
     assert result.prompt == "Add 2 and 3"
     assert result.name == "fn_add"
-    assert result.parameters == {"a": 2, "b": 3}
+    assert result.parameters == {"a": 2.0, "b": 3.0}
 
     trace = decoder.generate_with_trace("Add 2 and 3", [function])
     assert trace.result == result
-    assert [step.index for step in trace.steps] == list(range(1, 8))
+    assert [step.index for step in trace.steps] == list(range(1, 5))
     assert all(step.allowed_token_count >= 1 for step in trace.steps)
     assert trace.steps[-1].prefix == (
-        '{"name":"fn_add","parameters":{"a":2,"b":3}}'
+        '{"name":"fn_add","parameters":{"b":3}}'
     )
-    assert trace.cache_hits == 7
+    assert trace.cache_hits == 4
     assert trace.cache_misses == 0
 
 
 def test_generation_stops_at_configured_token_limit(tmp_path: Path) -> None:
     """Fail gracefully instead of entering an unbounded generation loop."""
     path = tmp_path / "vocab.json"
-    path.write_text(json.dumps({"{": 0, "#": 7}), encoding="utf-8")
+    path.write_text(json.dumps({"x": 0, "#": 1}), encoding="utf-8")
     decoder = ConstrainedDecoder.from_client(
-        make_client(path, planned_ids=[0], vocab_size=8),
+        make_client(path, planned_ids=[0], vocab_size=2),
         GenerationConfig(max_new_tokens=1),
     )
     function = FunctionDefinition(
         name="fn_ping",
         description="Ping.",
-        parameters={},
+        parameters={"text": TypeDefinition(type="string")},
         returns=TypeDefinition(type="boolean"),
     )
 
@@ -151,14 +145,14 @@ def test_generation_stops_at_configured_token_limit(tmp_path: Path) -> None:
 def test_generation_reports_when_no_token_can_continue(tmp_path: Path) -> None:
     """Return a controlled error when the vocabulary cannot start the grammar."""
     path = tmp_path / "vocab.json"
-    path.write_text(json.dumps({"#": 7}), encoding="utf-8")
+    path.write_text(json.dumps({"#": 0}), encoding="utf-8")
     decoder = ConstrainedDecoder.from_client(
-        make_client(path, planned_ids=[7], vocab_size=8)
+        make_client(path, planned_ids=[0], vocab_size=1)
     )
     function = FunctionDefinition(
         name="fn_ping",
         description="Ping.",
-        parameters={},
+        parameters={"value": TypeDefinition(type="integer")},
         returns=TypeDefinition(type="boolean"),
     )
 
@@ -185,3 +179,18 @@ def test_final_generated_document_is_validated_again(document: str) -> None:
     )
     with pytest.raises(GenerationError, match="failed final validation"):
         parse_generated_result(document, "Ping", [function])
+
+
+def test_compact_number_is_normalized_for_strict_python_consumers() -> None:
+    """Write JSON-schema numbers as floats even when Qwen emits an integer."""
+    function = FunctionDefinition(
+        name="fn_scale",
+        description="Scale a number.",
+        parameters={"value": TypeDefinition(type="number")},
+        returns=TypeDefinition(type="number"),
+    )
+
+    result = parse_generated_result('["fn_scale",3]', "Scale 3", [function])
+
+    assert result.parameters == {"value": 3.0}
+    assert isinstance(result.parameters["value"], float)

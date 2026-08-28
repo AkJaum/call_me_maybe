@@ -27,15 +27,6 @@ class PrefixStatus(str, Enum):
     COMPLETE = "complete"
 
 
-class _MatchResult(BaseModel):
-    """Represent an internal grammar match without unvalidated state."""
-
-    model_config = ConfigDict(frozen=True)
-
-    status: PrefixStatus
-    position: int = 0
-
-
 class FunctionCallGrammar(BaseModel):
     """Track a canonical function-call JSON prefix against several schemas.
 
@@ -82,6 +73,168 @@ class FunctionCallGrammar(BaseModel):
             raise ValueError(f"invalid constrained-decoding fragment: {fragment!r}")
         return self.model_copy(update={"prefix": self.prefix + fragment})
 
+    def is_inside_plain_string(self) -> bool:
+        """Return whether an argument string accepts ordinary token text."""
+        if ',"parameters":{' not in self.prefix:
+            return False
+        return _is_inside_plain_json_string(self.prefix)
+
+
+class CompactFunctionCallGrammar(BaseModel):
+    """Track a compact schema-equivalent call used during model inference.
+
+    The model emits ``[function_name, argument_1, ...]``.  Function names and
+    positional arguments are derived dynamically from the input catalog.  The
+    compact representation avoids spending expensive model passes on repeated
+    output key names while preserving function choice, argument order, and types.
+    """
+
+    model_config = ConfigDict(frozen=True)
+
+    functions: tuple[FunctionDefinition, ...] = Field(min_length=1)
+    prefix: str = ""
+
+    @model_validator(mode="after")
+    def validate_prefix(self) -> "CompactFunctionCallGrammar":
+        """Prevent construction of compact states that cannot be completed."""
+        if self.status() is PrefixStatus.INVALID:
+            raise ValueError("prefix cannot produce a schema-compliant function call")
+        return self
+
+    def status(self) -> PrefixStatus:
+        """Return the best compact match across all catalog functions."""
+        statuses = [
+            _match_compact_document(self.prefix, function)
+            for function in self.functions
+        ]
+        if any(status is PrefixStatus.COMPLETE for status in statuses):
+            return PrefixStatus.COMPLETE
+        if any(status is PrefixStatus.PREFIX for status in statuses):
+            return PrefixStatus.PREFIX
+        return PrefixStatus.INVALID
+
+    def can_accept(self, fragment: str) -> bool:
+        """Return whether a complete token fragment preserves compact validity."""
+        if not fragment or self.status() is PrefixStatus.COMPLETE:
+            return False
+        candidate = self.prefix + fragment
+        return any(
+            _match_compact_document(candidate, function)
+            is not PrefixStatus.INVALID
+            for function in self.functions
+        )
+
+    def advance(self, fragment: str) -> "CompactFunctionCallGrammar":
+        """Return a new immutable compact state after accepting a fragment."""
+        if not self.can_accept(fragment):
+            raise ValueError(f"invalid constrained-decoding fragment: {fragment!r}")
+        return self.model_copy(update={"prefix": self.prefix + fragment})
+
+    def is_inside_plain_string(self) -> bool:
+        """Return whether ordinary characters can extend the current JSON string."""
+        if any(
+            _compact_function_header(function).startswith(self.prefix)
+            for function in self.viable_functions()
+        ):
+            return False
+        return _is_inside_plain_json_string(self.prefix)
+
+    def viable_functions(self) -> tuple[FunctionDefinition, ...]:
+        """Return catalog functions still compatible with the current prefix."""
+        return tuple(
+            function
+            for function in self.functions
+            if _match_compact_document(self.prefix, function)
+            is not PrefixStatus.INVALID
+        )
+
+    def deterministic_function_suffix(self) -> str:
+        """Return common schema text before the first argument value."""
+        targets = [
+            _compact_function_header(function)
+            for function in self.viable_functions()
+        ]
+        if not targets or not all(target.startswith(self.prefix) for target in targets):
+            return ""
+        common = targets[0]
+        for target in targets[1:]:
+            limit = min(len(common), len(target))
+            index = 0
+            while index < limit and common[index] == target[index]:
+                index += 1
+            common = common[:index]
+        return common[len(self.prefix):]
+
+
+def _match_compact_document(
+    text: str,
+    function: FunctionDefinition,
+) -> PrefixStatus:
+    """Match ``[name,arg...]`` against one concrete function schema."""
+    position = 0
+    opening = _match_fixed(text, position, _compact_function_start(function))
+    if opening[0] is not PrefixStatus.COMPLETE:
+        return opening[0]
+    position = opening[1]
+
+    for definition in function.parameters.values():
+        separator = _match_fixed(text, position, ",")
+        if separator[0] is not PrefixStatus.COMPLETE:
+            return separator[0]
+        position = separator[1]
+        value_match = _match_value(text, position, definition.type)
+        if value_match[0] is not PrefixStatus.COMPLETE:
+            return value_match[0]
+        position = value_match[1]
+
+    closing = _match_fixed(text, position, "]")
+    if closing[0] is not PrefixStatus.COMPLETE:
+        return closing[0]
+    if closing[1] != len(text):
+        return PrefixStatus.INVALID
+    return PrefixStatus.COMPLETE
+
+
+def _compact_function_start(function: FunctionDefinition) -> str:
+    """Build the fixed compact prefix through the selected function name."""
+    function_name = json.dumps(
+        function.name,
+        ensure_ascii=True,
+        separators=(",", ":"),
+    )
+    return f"[{function_name}"
+
+
+def _compact_function_header(function: FunctionDefinition) -> str:
+    """Build deterministic compact text up to the first semantic argument."""
+    closing = "," if function.parameters else "]"
+    return _compact_function_start(function) + closing
+
+
+def _is_inside_plain_json_string(prefix: str) -> bool:
+    """Recognize an open JSON string that is not halfway through an escape."""
+    in_string = False
+    escaped = False
+    unicode_digits = 0
+    for character in prefix:
+        if not in_string:
+            if character == '"':
+                in_string = True
+            continue
+        if unicode_digits:
+            unicode_digits -= 1
+            continue
+        if escaped:
+            escaped = False
+            if character == "u":
+                unicode_digits = 4
+            continue
+        if character == "\\":
+            escaped = True
+        elif character == '"':
+            in_string = False
+    return in_string and not escaped and unicode_digits == 0
+
 
 def _match_document(text: str, function: FunctionDefinition) -> PrefixStatus:
     """Match one canonical document against one concrete function schema."""
@@ -93,46 +246,50 @@ def _match_document(text: str, function: FunctionDefinition) -> PrefixStatus:
     ]
     for part in fixed_parts:
         match = _match_fixed(text, position, part)
-        if match.status is not PrefixStatus.COMPLETE:
-            return match.status
-        position = match.position
+        if match[0] is not PrefixStatus.COMPLETE:
+            return match[0]
+        position = match[1]
 
     parameters = list(function.parameters.items())
     for index, (name, definition) in enumerate(parameters):
         if index:
             match = _match_fixed(text, position, ",")
-            if match.status is not PrefixStatus.COMPLETE:
-                return match.status
-            position = match.position
+            if match[0] is not PrefixStatus.COMPLETE:
+                return match[0]
+            position = match[1]
         key = json.dumps(name, ensure_ascii=True, separators=(",", ":")) + ":"
         match = _match_fixed(text, position, key)
-        if match.status is not PrefixStatus.COMPLETE:
-            return match.status
-        position = match.position
+        if match[0] is not PrefixStatus.COMPLETE:
+            return match[0]
+        position = match[1]
         value_match = _match_value(text, position, definition.type)
-        if value_match.status is not PrefixStatus.COMPLETE:
-            return value_match.status
-        position = value_match.position
+        if value_match[0] is not PrefixStatus.COMPLETE:
+            return value_match[0]
+        position = value_match[1]
 
     closing = _match_fixed(text, position, "}}")
-    if closing.status is not PrefixStatus.COMPLETE:
-        return closing.status
-    if closing.position != len(text):
+    if closing[0] is not PrefixStatus.COMPLETE:
+        return closing[0]
+    if closing[1] != len(text):
         return PrefixStatus.INVALID
     return PrefixStatus.COMPLETE
 
 
-def _match_fixed(text: str, position: int, expected: str) -> _MatchResult:
+def _match_fixed(
+    text: str, position: int, expected: str
+) -> tuple[PrefixStatus, int]:
     """Match fixed syntax, distinguishing an unfinished prefix from a mismatch."""
     available = text[position:position + len(expected)]
     if not expected.startswith(available):
-        return _MatchResult(status=PrefixStatus.INVALID)
+        return PrefixStatus.INVALID, 0
     if len(available) < len(expected):
-        return _MatchResult(status=PrefixStatus.PREFIX)
-    return _MatchResult(status=PrefixStatus.COMPLETE, position=position + len(expected))
+        return PrefixStatus.PREFIX, 0
+    return PrefixStatus.COMPLETE, position + len(expected)
 
 
-def _match_value(text: str, position: int, value_type: JsonType) -> _MatchResult:
+def _match_value(
+    text: str, position: int, value_type: JsonType
+) -> tuple[PrefixStatus, int]:
     """Match one scalar JSON value, leaving structural delimiters unconsumed."""
     if value_type == "string":
         return _match_string(text, position)
@@ -141,41 +298,41 @@ def _match_value(text: str, position: int, value_type: JsonType) -> _MatchResult
     return _match_number(text, position, integer_only=value_type == "integer")
 
 
-def _match_string(text: str, position: int) -> _MatchResult:
+def _match_string(text: str, position: int) -> tuple[PrefixStatus, int]:
     """Match a JSON string, including escapes and Unicode escape sequences."""
     if position == len(text):
-        return _MatchResult(status=PrefixStatus.PREFIX)
+        return PrefixStatus.PREFIX, 0
     if text[position] != '"':
-        return _MatchResult(status=PrefixStatus.INVALID)
+        return PrefixStatus.INVALID, 0
     index = position + 1
     while index < len(text):
         character = text[index]
         if character == '"':
-            return _MatchResult(status=PrefixStatus.COMPLETE, position=index + 1)
+            return PrefixStatus.COMPLETE, index + 1
         if ord(character) < 0x20:
-            return _MatchResult(status=PrefixStatus.INVALID)
+            return PrefixStatus.INVALID, 0
         if character != "\\":
             index += 1
             continue
         index += 1
         if index == len(text):
-            return _MatchResult(status=PrefixStatus.PREFIX)
+            return PrefixStatus.PREFIX, 0
         escape = text[index]
         if escape in '"\\/bfnrt':
             index += 1
             continue
         if escape != "u":
-            return _MatchResult(status=PrefixStatus.INVALID)
+            return PrefixStatus.INVALID, 0
         digits = text[index + 1:index + 5]
         if any(digit not in "0123456789abcdefABCDEF" for digit in digits):
-            return _MatchResult(status=PrefixStatus.INVALID)
+            return PrefixStatus.INVALID, 0
         if len(digits) < 4:
-            return _MatchResult(status=PrefixStatus.PREFIX)
+            return PrefixStatus.PREFIX, 0
         index += 5
-    return _MatchResult(status=PrefixStatus.PREFIX)
+    return PrefixStatus.PREFIX, 0
 
 
-def _match_boolean(text: str, position: int) -> _MatchResult:
+def _match_boolean(text: str, position: int) -> tuple[PrefixStatus, int]:
     """Match either JSON boolean literal."""
     remaining = text[position:]
     candidates = [
@@ -183,18 +340,17 @@ def _match_boolean(text: str, position: int) -> _MatchResult:
     ]
     if candidates:
         if remaining in candidates:
-            return _MatchResult(status=PrefixStatus.PREFIX)
-        return _MatchResult(status=PrefixStatus.PREFIX)
+            return PrefixStatus.PREFIX, 0
+        return PrefixStatus.PREFIX, 0
     for literal in ("true", "false"):
         if remaining.startswith(literal):
-            return _MatchResult(
-                status=PrefixStatus.COMPLETE,
-                position=position + len(literal),
-            )
-    return _MatchResult(status=PrefixStatus.INVALID)
+            return PrefixStatus.COMPLETE, position + len(literal)
+    return PrefixStatus.INVALID, 0
 
 
-def _match_number(text: str, position: int, integer_only: bool) -> _MatchResult:
+def _match_number(
+    text: str, position: int, integer_only: bool
+) -> tuple[PrefixStatus, int]:
     """Match a finite JSON number or integer without consuming its delimiter."""
     index = position
     while index < len(text) and text[index] in "-+0123456789.eE":
@@ -202,11 +358,11 @@ def _match_number(text: str, position: int, integer_only: bool) -> _MatchResult:
     candidate = text[position:index]
     if index == len(text):
         if _is_number_prefix(candidate, integer_only):
-            return _MatchResult(status=PrefixStatus.PREFIX)
-        return _MatchResult(status=PrefixStatus.INVALID)
+            return PrefixStatus.PREFIX, 0
+        return PrefixStatus.INVALID, 0
     if not _is_complete_number(candidate, integer_only):
-        return _MatchResult(status=PrefixStatus.INVALID)
-    return _MatchResult(status=PrefixStatus.COMPLETE, position=index)
+        return PrefixStatus.INVALID, 0
+    return PrefixStatus.COMPLETE, index
 
 
 def _is_number_prefix(value: str, integer_only: bool) -> bool:
