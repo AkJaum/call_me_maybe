@@ -218,10 +218,12 @@ class ConstrainedDecoder(BaseModel):
                     raise GenerationError(
                         "generated parameter failed final JSON validation"
                     ) from exc
-                return _normalize_generated_value(value, value_type), steps
+                normalized = _normalize_generated_value(value, value_type)
+                return _repair_near_verbatim_string(normalized, prompt), steps
         raise GenerationError(
             f"parameter {parameter_name!r} exceeded "
-            f"{self.config.max_new_tokens} tokens"
+            f"{self.config.max_new_tokens} tokens; unfinished value suffix: "
+            f"{grammar.prefix[len(header):][-120:]!r}"
         )
 
     def _select_function(
@@ -295,16 +297,29 @@ def build_parameter_prompt(
     parameter_name: str,
     value_type: str,
 ) -> str:
-    """Build a focused prompt that exposes one parameter name and type."""
+    """Build a focused non-thinking chat prompt for one argument value."""
+    signature = ", ".join(
+        f"{name}:{definition.type}"
+        for name, definition in function.parameters.items()
+    )
     return (
-        "Extract exactly the requested parameter from the request. Copy every "
-        "string character verbatim, using JSON escapes for embedded quotes. "
-        "Stop immediately after the last character of the request. "
-        "Do not rewrite or normalize. Return only JSON.\n"
+        "<|im_start|>system\n"
+        "Extract exactly one function argument. Return only the concise value "
+        "inside the already-started JSON and close the JSON immediately. "
+        "When the request supplies a literal string, copy every character "
+        "verbatim and use JSON escapes. When the argument represents an "
+        "instruction, pattern, format, or mode, derive the concise "
+        "machine-readable value required by the function. For a regular "
+        "expression or pattern argument, return matching-pattern syntax, not "
+        "the replacement value. Respect the target parameter name and never "
+        "return a sibling parameter's value. Never explain or show "
+        "reasoning.<|im_end|>\n"
+        "<|im_start|>user\n"
         f"Function: {function.name} - {function.description}\n"
+        f"Signature: {function.name}({signature})\n"
         f"Parameter: {parameter_name} ({value_type})\n"
-        f"Request: {prompt}\n"
-        "JSON:"
+        f"Request: {prompt}\n/no_think<|im_end|>\n"
+        "<|im_start|>assistant\nJSON:"
     )
 
 
@@ -414,3 +429,52 @@ def _normalize_generated_value(value: object, value_type: str) -> object:
     ):
         return float(value)
     return value
+
+
+def _repair_near_verbatim_string(value: object, prompt: str) -> object:
+    """Recover a unique prompt substring after at most three copy edits."""
+    if not isinstance(value, str) or len(value) < 4 or value in prompt:
+        return value
+
+    maximum_edits = 3
+    candidates: set[str] = set()
+    best_distance = maximum_edits + 1
+    minimum_length = max(1, len(value) - maximum_edits)
+    maximum_length = min(len(prompt), len(value) + maximum_edits)
+    for candidate_length in range(minimum_length, maximum_length + 1):
+        for start in range(len(prompt) - candidate_length + 1):
+            candidate = prompt[start:start + candidate_length]
+            distance = _bounded_edit_distance(
+                value,
+                candidate,
+                maximum_edits,
+            )
+            if distance < best_distance:
+                best_distance = distance
+                candidates = {candidate}
+            elif distance == best_distance:
+                candidates.add(candidate)
+
+    if best_distance <= maximum_edits and len(candidates) == 1:
+        return candidates.pop()
+    return value
+
+
+def _bounded_edit_distance(left: str, right: str, limit: int) -> int:
+    """Return Levenshtein distance, capped just above a requested limit."""
+    if abs(len(left) - len(right)) > limit:
+        return limit + 1
+    previous = list(range(len(right) + 1))
+    for left_index, left_character in enumerate(left, start=1):
+        current = [left_index]
+        for right_index, right_character in enumerate(right, start=1):
+            current.append(
+                min(
+                    current[-1] + 1,
+                    previous[right_index] + 1,
+                    previous[right_index - 1]
+                    + (left_character != right_character),
+                )
+            )
+        previous = current
+    return min(previous[-1], limit + 1)

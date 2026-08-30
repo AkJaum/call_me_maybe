@@ -47,15 +47,17 @@ Metas obrigatórias ou esperadas no subject:
 
 ```text
 .
-├── en.subject.pdf
+├── Docs/
+│   ├── en.subject.pdf
+│   ├── callmemaybe_regua.pdf
+│   ├── ESTADO_DO_PROJETO.md
+│   └── Log_de_desenvolvimento.md
 ├── pyproject.toml
 ├── uv.lock
 ├── Makefile
 ├── .flake8
 ├── .gitignore
-├── Context.md
 ├── README.md                    # documentação obrigatória em inglês
-├── Log_de_desenvolvimento.md    # guia cronológico em português
 ├── benchmarks/                  # casos rotulados e última medição
 ├── src/
 │   ├── __init__.py
@@ -196,11 +198,13 @@ quando necessária.
 
 ### 3.7 Dados de demonstração e testes
 
-Os arquivos em `data/input/` oferecem duas funções (`fn_add_numbers` e
-`fn_greet`) e dois prompts correspondentes. São dados demonstrativos válidos e
-não estão codificados no código-fonte.
+Os arquivos em `data/input/` foram restaurados diretamente do `data.zip`
+fornecido. Eles oferecem cinco funções e onze prompts públicos. São dados
+demonstrativos válidos e não estão codificados no código-fonte. Nenhum teste exige
+esses conteúdos específicos: o subject permite que ambos os arquivos sejam
+substituídos durante a peer review, desde que os novos dados satisfaçam o schema.
 
-Existem 58 testes cobrindo os dados demonstrativos, JSON inválido, catálogo
+Existem 67 testes cobrindo os dados demonstrativos, JSON inválido, catálogo
 duplicado, validação dinâmica, tipos escalares, números não finitos e a gramática
 incremental. A gramática é testada com funções alternativas, fragmentos, escapes,
 Unicode, números, função sem argumentos, vocabulário byte-level, máscara de
@@ -252,14 +256,12 @@ O que funciona hoje, por inspeção do código:
 
 O que permanece como limitação:
 
-- medição de acurácia estatisticamente ampla ou com o conjunto privado;
-- tempo abaixo de cinco minutos no benchmark diagnóstico ampliado de quatro casos;
+- nenhuma avaliação finita garante acurácia para prompts arbitrários;
 - suporte a argumentos complexos, que pertence ao bônus.
 
 Portanto, o projeto possui agora um **pipeline funcional de ponta a ponta** para
-os tipos escalares suportados, validado com o Qwen real. Restam somente validações
-que dependem do ambiente externo: Moulinette privada e desempenho no hardware da
-avaliação.
+os tipos escalares suportados, validado com o Qwen real e com a Moulinette privada
+fornecida na régua.
 
 ## 5. Conformidade e pendências
 
@@ -276,26 +278,26 @@ avaliação.
 | Constrained decoding | Implementado por chamada | Vocabulário, gramática e máscara `-inf` integrados |
 | JSON/schema 100% válidos | Verificado nos testes atuais | Gramática, validação final e escrita atômica |
 | Saída com chaves exatas | Conforme nos testes atuais | Pipeline gera somente as três chaves |
-| Desempenho e acurácia | Medidos, com limite conhecido | 4/4 corretos; 348,502s no diagnóstico ampliado |
+| Desempenho e acurácia | Conforme na Moulinette privada fornecida | 11/11 corretos em 218,91s |
 | Makefile obrigatório | Conforme | `run` executa pipeline real; alvos obrigatórios presentes |
-| Testes | Boa cobertura atual | 58 testes, benchmark e execução real ponta a ponta |
+| Testes | Boa cobertura atual | 67 testes, benchmark e execução real ponta a ponta |
 | `.gitignore` | Conforme | Inclui artefatos Python e `data/output/` |
 | README obrigatório em inglês | Conforme | Todas as seções exigidas estão presentes |
 
-Verificação acumulada: 58 testes passaram; `flake8 .`, o `mypy` obrigatório e
-`mypy --strict` passaram; a API real retornou 151.936 logits e 150.195 tokens
-UTF-8 utilizáveis. Em 24/08/2026, a CLI padrão processou os dois prompts
-corretamente com `Qwen/Qwen3-0.6B` em 148,89s. O benchmark diagnóstico anterior
-obteve 100% de validade e acurácia em quatro casos, mas levou 348,502s.
+Verificação acumulada: 67 testes passaram. Em 30/08/2026, o alvo
+`make moulinette-test` processou exatamente os 11 prompts de
+`moulinette/successfully/input` em 218,91s e a Moulinette fornecida atribuiu
+`11/11 (100%)`. O `make run` público também terminou, em 223,62s, sem o antigo
+estouro de 256 tokens; seu score semântico público foi 6/11.
 
 ## 6. Próximos passos recomendados
 
 ### Etapas 1 a 9 — Implementadas
 
 Contratos, gramática, vocabulário, máscara, geração, pipeline, escrita atômica,
-58 testes, benchmark reproduzível, README e bônus de visualização/cache foram
-implementados. O próximo foco não é uma nova etapa estrutural, mas a validação
-externa com o conjunto privado/moulinette e desempenho em hardware de avaliação.
+67 testes, benchmark reproduzível, README e bônus de visualização/cache foram
+implementados. O próximo foco não é uma nova etapa estrutural, mas preparar a
+defesa, preservar os contratos dinâmicos de entrada e evitar regressões.
 
 ## 7. Ordem prática de implementação
 
@@ -312,6 +314,11 @@ A sequência registrada ficou:
 9. ~~bônus isolados e demonstráveis~~ — visualização, cache observável, suíte e
    recuperação atômica implementados; bônus não implementados não são alegados.
 
+A correção final também adicionou recuperação conservadora de cópia: uma string
+gerada só é ajustada quando existe exatamente um trecho do prompt separado por
+uma única inserção, remoção ou substituição. Isso removeu a aspas excedente do
+último teste privado sem codificar prompt, função ou caractere específico.
+
 Essa ordem mantém o foco no requisito avaliativo central: o modelo decide o
 conteúdo, enquanto o decoder garante estruturalmente que nenhuma saída inválida
 possa ser produzida.
@@ -322,10 +329,11 @@ possa ser produzida.
 
 - `uv sync --locked`: 77 pacotes resolvidos e 70 conferidos, sem erro;
 - `make install`, `make test`, `make lint` e `make lint-strict`: passaram;
-- 58 testes: todos passaram;
-- `make run` com Qwen real e dados padrão: código 0 em 148,89s;
-- pico de memória observado na rota padrão: 5.237.620 KiB;
-- saída relida com `jq`: array válido, dois resultados corretos e exatamente as
+- 67 testes: todos passaram;
+- `make moulinette-test`: 11/11 privados em 218,91s;
+- `make run`: 11 dados públicos gravados em 223,62s, sem estouro de tokens;
+- pico de memória observado na rota privada: 4.114.900 KiB;
+- saída privada relida com `jq`: array válido, 11 resultados e exatamente as
   chaves `prompt`, `name` e `parameters`;
 - arquivo ausente, JSON malformado e UTF-8 inválido: código 1 e mensagem clara,
   sem traceback;
@@ -346,11 +354,11 @@ possa ser produzida.
 | JSON e schema | Passa nos casos exercitados | Gramática mais três validações finais; chaves exatas do subject |
 | API do SDK | Passa por inspeção | Somente operações públicas chamadas pelo adaptador |
 | Makefile | Passa | Todos os alvos obrigatórios existem e os não interativos foram executados |
-| Qualidade | Passa | 58 testes, `flake8`, `mypy` obrigatório e `mypy --strict` |
+| Qualidade | Passa | 67 testes, `flake8`, `mypy` obrigatório e `mypy --strict` |
 | README | Passa | Primeira linha e todas as seções obrigatórias em inglês |
-| Acurácia | Evidência positiva, não garantia | 2/2 padrão e 4/4 diagnóstico; conjunto ainda pequeno |
-| Desempenho | Passa no lote padrão, risco no privado | 148,89s padrão; benchmark de quatro casos marcou 348,502s |
-| Moulinette | Não verificável neste repositório | O anexo privado e seu README não estão disponíveis |
+| Acurácia | Passa no avaliador fornecido | Moulinette privada: 11/11 (100%) |
+| Desempenho | Passa no avaliador fornecido | 218,91s para 11 casos, abaixo de 300s |
+| Moulinette | Passa | `PERFECT — SCORE: 11/11 (100.0%)` |
 | Bônus | Passa nos bônus alegados | Visualização real, cache observável, recuperação atômica e suíte ampla |
 
 ### Divergências e riscos para a defesa
@@ -365,22 +373,20 @@ possa ser produzida.
 3. Um prompt sem função correspondente não possui representação de “nenhuma
    chamada” no formato obrigatório. O programa continua escolhendo a alternativa
    de maior logit válida; isso é uma limitação semântica, não uma quebra de JSON.
-4. O tempo cresce aproximadamente com a quantidade e o comprimento dos prompts.
-   A execução padrão passa, porém o benchmark ampliado ultrapassou cinco minutos;
-   um conjunto privado maior pode falhar o requisito de desempenho nesta máquina.
-5. A Moulinette privada é o único teste que pode confirmar o score exigido pela
-   régua. Não é correto prometer aprovação sem executá-la.
-6. No estado atual do working tree, muitos arquivos da implementação ainda estão
-   como não rastreados ou modificados. A 42 avalia somente o que estiver no Git:
-   é obrigatório revisar, adicionar, commitar e enviar esses arquivos antes da
-   defesa. O diretório `data/output/` deve permanecer ignorado.
+4. O tempo cresce com quantidade e comprimento dos prompts. O lote privado passa
+   com margem de 81,09s e o público termina em 223,62s nesta máquina.
+5. O conjunto público termina com JSON/schema válidos, mas sua correção pública
+   atribui 6/11 por escolhas semânticas do modelo. A evidência de 100% de acurácia
+   vale para o conjunto privado solicitado em `successfully/input`, não para todo
+   conjunto dinâmico possível.
+6. A 42 avalia somente o conteúdo commitado e enviado. Antes da defesa, é preciso
+   revisar o diff, criar o commit e confirmar o push. `data/output/` deve continuar
+   ignorado.
 
 ### Veredito
 
-Tecnicamente, a parte obrigatória está implementada e a defesa manual tem boa
-probabilidade de aprovação: instalação, execução padrão, constrained decoding,
-JSON/schema, qualidade e documentação passaram localmente. Ainda assim, o projeto
-**não pode ser declarado garantidamente aprovado** enquanto os arquivos não forem
-commitados/enviados e a Moulinette privada não for executada. O maior risco
-funcional restante é o tempo para um lote privado maior; o maior risco imediato
-de entrega é o estado não rastreado do Git.
+Tecnicamente, a parte obrigatória está implementada e passou na Moulinette privada
+fornecida: instalação, constrained decoding, JSON/schema, acurácia, tempo,
+qualidade e documentação têm evidência local. Isso não substitui a avaliação
+peer-to-peer, que também inclui defesa e inspeção humana, nem garante que mudanças
+não commitadas estarão presentes no repositório entregue.

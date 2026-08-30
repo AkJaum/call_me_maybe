@@ -1,6 +1,9 @@
 PYTHON := uv run python
+MOULINETTE_DATA := moulinette/successfully
+MOULINETTE_OUTPUT := $(MOULINETTE_DATA)/output/function_calling_results.json
 
-.PHONY: install run debug clean lint lint-strict test model-check benchmark visualize
+.PHONY: install run debug clean lint lint-strict test model-check benchmark \
+	visualize moulinette-run moulinette-test
 
 install:
 	uv sync
@@ -19,6 +22,17 @@ benchmark:
 
 visualize:
 	$(PYTHON) -m src --visualize data/output/generation_trace.html
+
+moulinette-run:
+	$(PYTHON) -m src \
+		--functions_definition $(MOULINETTE_DATA)/input/functions_definition.json \
+		--input $(MOULINETTE_DATA)/input/function_calling_tests.json \
+		--output $(MOULINETTE_OUTPUT)
+
+moulinette-test: moulinette-run
+	cd moulinette && uv run python -m moulinette grade_student_answers \
+		--set private \
+		--student_answer_path successfully/output/function_calling_results.json
 
 test:
 	uv run pytest

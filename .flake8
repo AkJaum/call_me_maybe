@@ -1,4 +1,4 @@
 [flake8]
-exclude = .venv,llm_sdk
+exclude = .venv,llm_sdk,moulinette
 max-line-length = 88
 jobs = 1

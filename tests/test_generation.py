@@ -11,6 +11,8 @@ from src.generation import (
     ConstrainedDecoder,
     GenerationConfig,
     GenerationError,
+    _repair_near_verbatim_string,
+    build_parameter_prompt,
     mask_invalid_logits,
     parse_generated_result,
     select_highest_logit,
@@ -194,3 +196,67 @@ def test_compact_number_is_normalized_for_strict_python_consumers() -> None:
 
     assert result.parameters == {"value": 3.0}
     assert isinstance(result.parameters["value"], float)
+
+
+def test_unique_single_character_copy_error_is_repaired() -> None:
+    """Prefer the only near-verbatim substring present in the request."""
+    prompt = 'Format template: Say "hello" to {name}'
+
+    repaired = _repair_near_verbatim_string(
+        'Say "hello" to {name}"',
+        prompt,
+    )
+
+    assert repaired == 'Say "hello" to {name}'
+
+
+def test_unique_two_character_copy_error_is_repaired() -> None:
+    """Recover a literal after two unambiguous character substitutions."""
+    prompt = 'Format template: Say "hello" to {name}'
+
+    repaired = _repair_near_verbatim_string(
+        "Say 'hello' to {name}",
+        prompt,
+    )
+
+    assert repaired == 'Say "hello" to {name}'
+
+
+def test_unique_three_character_copy_error_is_repaired() -> None:
+    """Recover a literal after three unambiguous copy mistakes."""
+    prompt = 'Format template: Say "hello" to {name}'
+
+    repaired = _repair_near_verbatim_string(
+        "Say 'hello' to {name}'",
+        prompt,
+    )
+
+    assert repaired == 'Say "hello" to {name}'
+
+
+def test_near_verbatim_repair_does_not_guess() -> None:
+    """Keep derived and ambiguous values exactly as the model generated them."""
+    assert _repair_near_verbatim_string(r"\d+", "Replace all numbers") == r"\d+"
+    assert _repair_near_verbatim_string("catx", "caty catz") == "catx"
+
+
+def test_parameter_prompt_disables_reasoning_and_supports_derived_values() -> None:
+    """Prevent explanations while allowing non-literal string arguments."""
+    function = FunctionDefinition(
+        name="fn_transform",
+        description="Transform text according to a machine-readable pattern.",
+        parameters={"pattern": TypeDefinition(type="string")},
+        returns=TypeDefinition(type="string"),
+    )
+
+    prompt = build_parameter_prompt(
+        "Transform every digit",
+        function,
+        "pattern",
+        "string",
+    )
+
+    assert "derive the concise machine-readable value" in prompt
+    assert "Signature: fn_transform(pattern:string)" in prompt
+    assert "/no_think<|im_end|>" in prompt
+    assert prompt.endswith("<|im_start|>assistant\nJSON:")

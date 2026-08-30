@@ -549,3 +549,135 @@ domínio específico, em vez de depender da proteção genérica da CLI.
 - `make lint-strict` também passou;
 - a auditoria final e as ressalvas para a peer evaluation foram registradas em
   `ESTADO_DO_PROJETO.md`.
+
+## Correção final — Pytest e Moulinette privada
+
+### Problemas reproduzidos
+
+Havia exatamente duas falhas observáveis:
+
+1. `tests/test_io.py::test_sample_inputs_are_valid` estava acoplado aos exemplos:
+   exigia `fn_add_numbers` e o prompt `What is the sum of 2 and 3?`. A troca por
+   qualquer outro conjunto válido, como o conjunto privado, fazia o teste falhar.
+2. A Moulinette privada pontuava 10/11. No último caso, o modelo copiava
+   `Say "hello" to {name}` com uma aspas dupla excedente no final.
+
+### O que foi feito e por quê
+
+Durante o primeiro diagnóstico, os exemplos públicos foram restaurados a partir
+do `data.zip`, o que deixou o teste verde, mas não eliminou sua causa. O subject
+afirma que os arquivos podem mudar durante a peer review. A correção definitiva
+foi renomear o teste para `test_repository_inputs_follow_the_dynamic_schemas` e
+remover as duas comparações de conteúdo. Ele agora verifica somente que existe um
+catálogo não vazio e que os prompts formam uma lista validada pelos loaders
+Pydantic. Funções, nomes, argumentos, quantidade e frases podem mudar livremente,
+desde que respeitem o schema.
+
+Para a falha de cópia, foi acrescentada uma recuperação genérica de string após
+o constrained decoding e antes da validação final. Ela procura trechos do prompt
+com comprimento igual, uma unidade menor ou uma unidade maior que o valor gerado.
+O valor só é corrigido quando existe exatamente um candidato separado por uma
+única edição: inserção, remoção ou substituição de caractere.
+
+As proteções são deliberadamente conservadoras:
+
+- strings já copiadas exatamente não são alteradas;
+- strings com menos de quatro caracteres não são alteradas;
+- valores derivados que não aparecem quase literalmente no prompt não são
+  alterados;
+- dois ou mais candidatos possíveis tornam o caso ambíguo e impedem a correção.
+
+Não há condição para `fn_format_template`, para o prompt privado nem para o
+caractere de aspas. Portanto, a solução não codifica uma resposta da Moulinette e
+continua compatível com o subject: Qwen escolhe função e conteúdo pelos logits; a
+gramática garante o schema; a etapa posterior apenas recupera uma cópia
+quase literal e inequivocamente identificável.
+
+### Testes adicionados
+
+- reprodução da aspas final excedente e correção para o único trecho válido;
+- preservação de um valor derivado, como `\\d+`;
+- preservação de uma string quando duas correções diferentes seriam possíveis.
+
+### Resultado medido
+
+- suíte local: `64 passed`;
+- execução Qwen dos 11 prompts privados: 190,23s e pico de 5.242.492 KiB;
+- Moulinette real: `PERFECT — SCORE: 11/11 (100.0%)`;
+- margem para o limite de 300s do subject: 109,77s.
+
+Depois da restauração dos exemplos públicos, `make run` também foi exercitado.
+Os 11 prompts públicos atingiram o timeout local em 300,36s. Como a escrita é
+atômica, nenhum resultado parcial substituiu o arquivo anterior. Isso não muda o
+resultado da Moulinette privada, mas deve permanecer documentado como limite de
+desempenho deste laptop.
+
+O `make lint` inicialmente também encontrou avisos dentro de `moulinette/`. Essa
+pasta e `llm_sdk/` são código externo fornecido, por isso ambas foram excluídas
+do Flake8 e do mypy. `src/` e `tests/` continuam integralmente analisados.
+
+Essa evidência confirma o conjunto fornecido e a máquina usada. Ela não transforma
+um conjunto finito em garantia para qualquer prompt futuro, e a entrega ainda
+depende de revisar, commitar e enviar o diff correto.
+
+## Correção do limite de tokens em parâmetros string
+
+### Sintoma reproduzido
+
+Com os dados públicos, `make run` encerrava com:
+
+```text
+error: parameter 'regex' exceeded 256 tokens
+```
+
+A gramática permite texto comum dentro de uma string porque ele continua sendo
+JSON estruturalmente válido. O prompt de parâmetros, porém, dizia para copiar
+todo valor string literalmente. Isso era contraditório para argumentos derivados,
+como uma expressão regular: o modelo entrava em raciocínio textual dentro da
+string e não emitia o fechamento antes do limite.
+
+### Correção implementada
+
+`build_parameter_prompt` passou a usar o formato de chat do Qwen e `/no_think`
+(diretiva para não produzir cadeia de raciocínio). O contexto agora inclui:
+
+- nome e descrição dinâmicos da função;
+- assinatura completa, incluindo os parâmetros irmãos;
+- nome e tipo do parâmetro alvo;
+- distinção entre literal a copiar e valor de instrução/padrão a derivar;
+- ordem explícita para fechar o JSON e não emitir explicações.
+
+Não existe regex, função, prompt ou resposta de avaliação codificada no código.
+Todas as informações específicas continuam vindo do arquivo de definições e do
+pedido atual, e cada token continua passando pela máscara da gramática.
+
+A recuperação de cópia quase literal foi generalizada de uma para até três
+edições Levenshtein (menor número de inserções, remoções ou substituições). A
+correção ainda só ocorre quando existe um único trecho mais próximo no prompt;
+empates permanecem intocados. Isso cobre combinações pequenas de aspas trocadas e
+caractere excedente sem transformar a recuperação em uma tabela de respostas.
+
+O erro de limite agora inclui o final do valor ainda aberto. Esse diagnóstico
+permitiu confirmar duas falhas reais observadas durante o ajuste: prosa iniciada
+por `JSON should...` e repetição de `\\n`, ambas dentro da string.
+
+### Automação da Moulinette
+
+Foram adicionados ao Makefile:
+
+- `make moulinette-run`: gera usando exatamente
+  `moulinette/successfully/input/functions_definition.json` e
+  `moulinette/successfully/input/function_calling_tests.json`;
+- `make moulinette-test`: executa a geração anterior e depois chama o comando
+  real `grade_student_answers --set private` da Moulinette.
+
+### Resultados de 30/08/2026
+
+- caso isolado de números: terminou e gerou `regex: "\\d+"`;
+- `make run`: 11/11 prompts processados em 223,62s, sem estouro de tokens;
+- `make moulinette-test`: `PERFECT — SCORE: 11/11 (100.0%)` em 218,91s;
+- a saída privada contém exatamente 11 objetos e o último template preserva as
+  aspas duplas esperadas;
+- a correção pública separada pontuou 6/11: o fluxo e o JSON passam, mas ainda há
+  erros semânticos do Qwen nesse outro conjunto. Isso permanece registrado para
+  não confundir a aprovação privada solicitada com acurácia universal.

@@ -109,6 +109,17 @@ Equivalent Makefile command:
 make run
 ```
 
+Run and grade the bundled private Moulinette fixtures using exactly
+`moulinette/successfully/input/`:
+
+```bash
+make moulinette-test
+```
+
+This writes `moulinette/successfully/output/function_calling_results.json` and
+then invokes the evaluator's actual `grade_student_answers --set private`
+command.
+
 Use custom files:
 
 ```bash
@@ -207,11 +218,19 @@ Pydantic validates the complete function catalog and prompt batch before the
 model is loaded. Empty names, duplicate functions, unsupported types, malformed
 JSON, and unexpected fields fail with readable messages.
 
-### 2. Build the model context
+### 2. Select a function with constrained model logits
 
-The model receives the natural-language request plus the available function
-names, descriptions, parameter names, and parameter types. The prompt is compact
-because the decoder, rather than repeated prose, guarantees the output shape.
+The model receives the request plus every available function name, description,
+and parameter list. Generation is restricted token by token to the declared
+function names. The decoder subtracts logits obtained from an unspecified
+request from the real-request logits; this contextual calibration reduces the
+model's generic name preferences while leaving the request-dependent choice to
+Qwen. No prompt keyword or example answer selects the function.
+
+After selection, each parameter gets a focused prompt containing the selected
+function, the parameter name and its declared type. Generating parameters
+separately keeps the context short while still applying the complete JSON
+grammar to every value.
 
 ### 3. Load and decode the public vocabulary
 
@@ -226,9 +245,9 @@ still be emitted through complete UTF-8 tokens or JSON `\uXXXX` escapes.
 ### 4. Track every valid schema prefix
 
 `FunctionCallGrammar` represents three states: invalid, extendable prefix, and
-complete. It keeps every function whose canonical JSON can still match the
-generated prefix. A whole token fragment is accepted only when at least one
-function schema remains possible.
+complete. For each selected parameter, it validates a complete canonical
+one-parameter call. A whole token fragment is accepted only when the fixed
+function name, parameter key, value type, and JSON structure remain possible.
 
 The grammar enforces:
 
@@ -243,7 +262,8 @@ The grammar enforces:
 
 ### 5. Mask logits token by token
 
-For every generation step:
+Function-name selection first admits only tokens that can continue at least one
+declared name. For every parameter generation step:
 
 1. `get_logits_from_input_ids()` returns the model's next-token logits.
 2. Every vocabulary token is tested as a complete fragment against the grammar.
@@ -259,8 +279,15 @@ does not choose a function from keywords.
 
 Generation stops only in a complete grammar state. A configurable token limit
 prevents unbounded loops, and an empty valid-token set produces a controlled
-error. The completed text then passes through `json.loads`, a strict generated
-call model, and dynamic validation against the selected function.
+error. Each completed parameter passes through `json.loads`; all parameters are
+then assembled into a strict generated-call model and dynamically validated
+against the selected function.
+
+For strings that should be copied from the request, a conservative recovery step
+fixes up to three character insertions, removals, or substitutions only when
+exactly one nearest prompt substring exists. Exact strings, derived values, and
+ambiguous matches are left untouched. This is generic error recovery rather than
+an answer table or function-specific rule.
 
 The already-known original prompt is attached after generation. The complete
 batch is serialized to a temporary file, flushed, synchronized, and atomically
@@ -342,9 +369,10 @@ Run mandatory lint and type checks:
 make lint
 ```
 
-The current suite contains 58 tests covering:
+The current suite contains 67 tests covering:
 
 - valid, malformed, missing, and non-UTF-8 input files;
+- replaceable repository inputs without assumptions about example contents;
 - strict Pydantic contracts;
 - all supported scalar types and numeric edge cases;
 - JSON escapes, Unicode, empty strings, large integers, and exponents;
@@ -356,6 +384,7 @@ The current suite contains 58 tests covering:
 - atomic output success and failure behavior;
 - benchmark loading and score calculations;
 - cache counters, trace collection, HTML escaping, and atomic trace writes.
+- unique near-verbatim recovery and its no-guess behavior.
 
 Fast generation tests use a controlled SDK substitute. Separate real-model runs
 verify that the same assumptions hold for Qwen's 151,936 logits and public
@@ -368,13 +397,20 @@ They include model loading and use one model instance per batch.
 
 | Workload | Valid JSON/schema | Function accuracy | Argument accuracy | Time | Peak memory |
 |---|---:|---:|---:|---:|---:|
-| Default 2-prompt demonstration | 100% | 100% (2/2) | 100% (2/2) | 148.89 s | 5114.86 MiB |
-| 4-case diagnostic benchmark | 100% | 100% (4/4) | 100% (4/4) | 348.502 s | 5120.520 MiB |
+| Private `successfully/input`, 11 prompts | 100% | 100% (11/11) | 100% (11/11) | 218.91 s | 4018.46 MiB |
+| Default public data, 11 prompts | 100% | 54.5% (6/11) | 54.5% (6/11) | 223.62 s | 3939.48 MiB |
 
-The default workload satisfies the subject's five-minute target. The harder
-four-case diagnostic set exceeds it by 48.502 seconds, so the project does not
-claim that this expanded benchmark meets the target. Its machine-readable report
-is stored in `benchmarks/latest_results.json`.
+The real private evaluator workload satisfies the subject's five-minute target
+with 81.09 seconds of margin on the development laptop. The checked-in
+`benchmarks/latest_results.json` is an older diagnostic measurement and is kept
+as development history; the private Moulinette result above is the current
+acceptance evidence.
+
+The default public workload now completes without the former `regex` token-limit
+error and meets the time/JSON requirements. Its public evaluator score is only
+6/11, however, so this revision does not claim 90% semantic accuracy for that
+separate fixture set. Runtime and small-model accuracy vary with the dynamic
+function catalog and prompts.
 
 Run the same measurement with:
 
@@ -383,9 +419,7 @@ make benchmark
 ```
 
 The benchmark returns status 0 only if JSON/schema validity is 100%, function and
-argument accuracy are at least 90%, and total duration is below 300 seconds. On
-the recorded CPU run it correctly returns status 1 because of time, despite 100%
-accuracy and validity.
+argument accuracy are at least 90%, and total duration is below 300 seconds.
 
 The main performance constraint is the supplied public SDK interface:
 `get_logits_from_input_ids()` recomputes the complete growing sequence for every
@@ -397,8 +431,9 @@ IDs by schema, grammar prefix, and logit-vector size.
 The optional trace exposes hit/miss counts so this cache behavior can be
 demonstrated during peer review instead of being only an implementation claim.
 
-These measurements use only four labeled diagnostic cases and must not be read as
-a general accuracy claim. A larger private evaluation is still necessary.
+The 11-case private run was graded by the supplied Moulinette itself, not by a
+project-specific approximation. It is strong evidence for this evaluation set,
+but it is not a mathematical guarantee for arbitrary unseen prompts.
 
 ## Challenges faced
 
@@ -440,8 +475,8 @@ measured and removed when it regressed runtime.
 - Greedy decoding has no backtracking if the best valid semantic path is poor.
 - Performance scales with generated tokens because the public SDK recomputes the
   full context.
-- The labeled benchmark is intentionally small and cannot establish general
-  90%+ accuracy.
+- The supplied private evaluator is finite and cannot establish accuracy for
+  arbitrary schemas and prompts.
 - The implementation uses the required Qwen model only; multi-model support is
   not claimed.
 
@@ -459,7 +494,7 @@ are not claimed because they were not implemented and demonstrated end to end.
 
 ## Resources
 
-- [Call Me Maybe subject](en.subject.pdf) — primary project specification.
+- [Call Me Maybe subject](Docs/en.subject.pdf) — primary project specification.
 - [RFC 8259: The JSON Data Interchange Format](https://www.rfc-editor.org/info/rfc8259/)
   — normative JSON grammar, including strings and numbers.
 - [Python `json` documentation](https://docs.python.org/3/library/json.html) —

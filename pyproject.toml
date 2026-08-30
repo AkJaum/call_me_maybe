@@ -20,7 +20,7 @@ dev = [
 llm-sdk = { path = "llm_sdk" }
 
 [tool.mypy]
-exclude = ["llm_sdk/"]
+exclude = ["llm_sdk/", "moulinette/"]
 plugins = ["pydantic.mypy"]
 
 [tool.pytest.ini_options]
@@ -28,5 +28,5 @@ testpaths = ["tests"]
 pythonpath = ["."]
 
 [tool.flake8]
-exclude = [".venv", "llm_sdk"]
+exclude = [".venv", "llm_sdk", "moulinette"]
 max-line-length = 88

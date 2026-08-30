@@ -15,15 +15,15 @@ from src.io import (
 from src.models import build_function_call_result
 
 
-def test_sample_inputs_are_valid() -> None:
-    """Ensure repository demonstration inputs match their Pydantic schemas."""
+def test_repository_inputs_follow_the_dynamic_schemas() -> None:
+    """Accept any repository inputs that satisfy the subject's schemas."""
     definitions = load_function_definitions(
         Path("data/input/functions_definition.json")
     )
     prompts = load_prompts(Path("data/input/function_calling_tests.json"))
 
-    assert definitions[0].name == "fn_add_numbers"
-    assert prompts[0].prompt == "What is the sum of 2 and 3?"
+    assert definitions
+    assert isinstance(prompts, list)
 
 
 def test_invalid_json_has_a_readable_error(tmp_path: Path) -> None:
