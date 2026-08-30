@@ -681,3 +681,62 @@ Foram adicionados ao Makefile:
 - a correção pública separada pontuou 6/11: o fluxo e o JSON passam, mas ainda há
   erros semânticos do Qwen nesse outro conjunto. Isso permanece registrado para
   não confundir a aprovação privada solicitada com acurácia universal.
+
+## Auditoria de conformidade, Python 3.10 e ambos os conjuntos da Moulinette
+
+### Limite das bibliotecas proibidas
+
+O subject proíbe o código autoral de usar diretamente PyTorch, Hugging Face,
+Transformers, Accelerate, DSPy, Outlines e ferramentas semelhantes. Ao mesmo
+tempo, ele exige o `llm_sdk` fornecido, cuja implementação interna importa
+PyTorch, Transformers e Hugging Face e usa `device_map="auto"` em CUDA. O hash do
+arquivo `llm_sdk/llm_sdk/__init__.py` foi comparado com `llm_sdk.zip` e é idêntico.
+
+`accelerate>=1.1.0` foi adicionado somente às dependências do pacote fornecido
+porque o `device_map` existente exige essa integração. Nenhum arquivo de `src/`
+importa frameworks de modelo. A aplicação continua usando apenas `encode`,
+`get_logits_from_input_ids` e `get_path_to_vocab_file`, todos públicos. Um teste
+AST passou a impedir regressões nesse limite.
+
+### Correções de acurácia sem seletor textual de função
+
+A seleção de função começava com o maior prefixo comum dos nomes, normalmente
+`fn_`. A medição mostrou que esse preenchimento removia uma decisão útil do Qwen
+e fazia os dois pedidos de raiz quadrada escolherem a função de regex. O prefixo
+inicial passou a ser vazio. Cada token ainda é limitado aos nomes declarados, e
+o maior logit contextual calibrado continua determinando a função. Nos 22 pedidos
+fornecidos, Qwen escolheu a função correta sem tabela de palavras-chave.
+
+Argumentos regex apresentaram outra falha: a string podia permanecer válida para
+o schema e ainda assim copiar o valor de substituição, não casar com a fonte ou
+crescer até o limite. A geração livre e restringida pela gramática permanece como
+caminho primário. Quando o padrão não compila, não casa com a fonte já gerada ou
+não termina em 64 tokens, o programa cria estratégias padrão e estratégias para
+literais simples citados no pedido, elimina qualquer candidato que não case com a
+fonte e pede ao próprio Qwen que escolha entre os restantes por logits
+restringidos. Assim, valores de substituição que não existem na fonte não podem
+ser escolhidos como padrão, sem escolher a função por heurística.
+
+### Compatibilidade mínima e resultados finais
+
+O uso de `typing.Self`, disponível somente a partir do Python 3.11, contrariava o
+`requires-python = ">=3.10"`. As anotações foram substituídas por referências de
+tipo compatíveis. Foi criado um ambiente isolado com Python 3.10.21, sincronizado
+exatamente pelo lockfile, sem alterar o ambiente principal.
+
+Evidências finais de 30/08/2026:
+
+- `uv sync --locked` passou em Python 3.10.21 e no ambiente principal 3.14.7;
+- 63 testes ativos passaram em Python 3.10.21 e 3.14.7 após a remoção da antiga
+  gramática compacta, que não era mais usada pela aplicação;
+- Flake8, mypy obrigatório e `mypy --strict` passaram;
+- a validação da CLI passou em Python 3.10.21;
+- o conjunto público recebeu `PERFECT — 11/11 (100%)` em duas execuções; a
+  repetição temporizada levou 47,64s;
+- o conjunto privado recebeu `PERFECT — 11/11 (100%)` em duas execuções; a
+  repetição temporizada levou 31,65s;
+- ambos ficaram abaixo dos 300 segundos do subject nesta máquina CUDA.
+
+Esses resultados substituem o registro anterior de 6/11 no conjunto público. A
+evidência continua limitada aos conjuntos fornecidos e ao hardware local; não é
+uma garantia matemática para prompts arbitrários ou execução em CPU.

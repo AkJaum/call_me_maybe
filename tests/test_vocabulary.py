@@ -5,7 +5,7 @@ from pathlib import Path
 
 import pytest
 
-from src.grammar import CompactFunctionCallGrammar, FunctionCallGrammar
+from src.grammar import FunctionCallGrammar
 from src.models import FunctionDefinition, TypeDefinition
 from src.vocabulary import TokenVocabulary, VocabularyError
 
@@ -63,33 +63,6 @@ def test_vocabulary_filters_whole_fragments_through_grammar(tmp_path: Path) -> N
         "misses": 2,
         "entries": 2,
     }
-
-
-def test_string_fast_path_does_not_relax_fixed_function_names(
-    tmp_path: Path,
-) -> None:
-    """Apply the broad string index only after the selected function header."""
-    path = tmp_path / "vocab.json"
-    write_vocabulary(path, {'["fn_': 0, "echo": 1, "1": 2, "Ada": 3})
-    function = FunctionDefinition(
-        name="fn_echo",
-        description="Echo text.",
-        parameters={"text": TypeDefinition(type="string")},
-        returns=TypeDefinition(type="string"),
-    )
-    vocabulary = TokenVocabulary.from_file(path)
-    name_grammar = CompactFunctionCallGrammar(
-        functions=(function,),
-        prefix='["fn_',
-    )
-    value_grammar = CompactFunctionCallGrammar(
-        functions=(function,),
-        prefix='["fn_echo","',
-    )
-
-    assert vocabulary.allowed_token_ids(name_grammar, 4) == (1,)
-    assert 2 in vocabulary.allowed_token_ids(value_grammar, 4)
-    assert 3 in vocabulary.allowed_token_ids(value_grammar, 4)
 
 
 def test_invalid_vocabulary_is_reported_cleanly(tmp_path: Path) -> None:

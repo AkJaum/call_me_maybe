@@ -92,6 +92,13 @@ Install the locked project dependencies:
 uv sync
 ```
 
+This also installs `accelerate`, which the bundled `llm_sdk` needs for the
+automatic CUDA `device_map` already present in the supplied SDK source. The
+subject forbids student code from using PyTorch, Hugging Face, Transformers,
+Accelerate, DSPy, Outlines, or similar frameworks directly. The implementation
+under `src/` imports none of them and interacts only with the SDK's public API;
+those framework dependencies remain internal to the supplied SDK boundary.
+
 The local `llm_sdk` package is connected through `pyproject.toml`; it must remain
 inside the repository.
 
@@ -222,10 +229,12 @@ JSON, and unexpected fields fail with readable messages.
 
 The model receives the request plus every available function name, description,
 and parameter list. Generation is restricted token by token to the declared
-function names. The decoder subtracts logits obtained from an unspecified
-request from the real-request logits; this contextual calibration reduces the
-model's generic name preferences while leaving the request-dependent choice to
-Qwen. No prompt keyword or example answer selects the function.
+function names from the beginning of each name; no shared `fn_` prefix is
+prefilled before Qwen scores the alternatives. The decoder subtracts logits
+obtained from an unspecified request from the real-request logits; this
+contextual calibration reduces the model's generic name preferences while
+leaving the request-dependent choice to Qwen. No prompt keyword or example
+answer selects the function.
 
 After selection, each parameter gets a focused prompt containing the selected
 function, the parameter name and its declared type. Generating parameters
@@ -288,6 +297,14 @@ fixes up to three character insertions, removals, or substitutions only when
 exactly one nearest prompt substring exists. Exact strings, derived values, and
 ambiguous matches are left untouched. This is generic error recovery rather than
 an answer table or function-specific rule.
+
+Regex-like string parameters retain free constrained generation as their primary
+path. If that path does not terminate concisely or produces a Python pattern that
+matches nothing in the already generated source string, Qwen performs a second
+constrained choice among standard and dynamically quoted source-matching pattern
+strategies. Candidates that cannot match the source are removed, so a replacement
+literal cannot be mistaken for the text to replace. The fallback is bounded to
+64 generated tokens and Qwen still chooses the surviving semantic strategy.
 
 The already-known original prompt is attached after generation. The complete
 batch is serialized to a temporary file, flushed, synchronized, and atomically
@@ -369,7 +386,7 @@ Run mandatory lint and type checks:
 make lint
 ```
 
-The current suite contains 67 tests covering:
+The current suite contains 63 tests covering:
 
 - valid, malformed, missing, and non-UTF-8 input files;
 - replaceable repository inputs without assumptions about example contents;
@@ -385,6 +402,8 @@ The current suite contains 67 tests covering:
 - benchmark loading and score calculations;
 - cache counters, trace collection, HTML escaping, and atomic trace writes.
 - unique near-verbatim recovery and its no-guess behavior.
+- unprefilled model-driven function selection and source-matching regex recovery;
+- absence of forbidden model-framework imports from student-owned `src/` code.
 
 Fast generation tests use a controlled SDK substitute. Separate real-model runs
 verify that the same assumptions hold for Qwen's 151,936 logits and public
@@ -392,25 +411,21 @@ vocabulary.
 
 ## Performance analysis
 
-Measurements were made on the project development machine using CPU inference.
-They include model loading and use one model instance per batch.
+The current acceptance measurements were made on the project development machine
+with CUDA inference. They include model loading and use one model instance per
+batch. Each set passed twice after the final changes; the table records the
+slower repeated run.
 
 | Workload | Valid JSON/schema | Function accuracy | Argument accuracy | Time | Peak memory |
 |---|---:|---:|---:|---:|---:|
-| Private `successfully/input`, 11 prompts | 100% | 100% (11/11) | 100% (11/11) | 218.91 s | 4018.46 MiB |
-| Default public data, 11 prompts | 100% | 54.5% (6/11) | 54.5% (6/11) | 223.62 s | 3939.48 MiB |
+| Private `successfully/input`, 11 prompts | 100% | 100% (11/11) | 100% (11/11) | 31.65 s | Not remeasured |
+| Default public data, 11 prompts | 100% | 100% (11/11) | 100% (11/11) | 47.64 s | Not remeasured |
 
-The real private evaluator workload satisfies the subject's five-minute target
-with 81.09 seconds of margin on the development laptop. The checked-in
-`benchmarks/latest_results.json` is an older diagnostic measurement and is kept
-as development history; the private Moulinette result above is the current
-acceptance evidence.
-
-The default public workload now completes without the former `regex` token-limit
-error and meets the time/JSON requirements. Its public evaluator score is only
-6/11, however, so this revision does not claim 90% semantic accuracy for that
-separate fixture set. Runtime and small-model accuracy vary with the dynamic
-function catalog and prompts.
+Both supplied evaluator workloads satisfy the subject's five-minute target with
+substantial margin. The checked-in `benchmarks/latest_results.json` is an older
+CPU diagnostic measurement and is kept as development history; the two complete
+Moulinette runs above are the current acceptance evidence. Runtime and small-model
+accuracy can still vary with a different machine, function catalog, or prompt set.
 
 Run the same measurement with:
 
@@ -461,6 +476,15 @@ under-constraining would violate the schema guarantee. The grammar constrains
 structure, declared choices, and types while leaving function branches and value
 contents to model logits.
 
+### Small-model regex drift
+
+Qwen sometimes emitted a long but schema-valid regex string or copied a sibling
+replacement into the pattern. The primary path remains free constrained
+generation. A bounded recovery path validates the pattern against the generated
+source, builds only standard or dynamically quoted candidates that actually
+match that source, and lets constrained Qwen logits choose the strategy. This
+prevents no-op replacement calls without hardcoding a function answer.
+
 ### CPU inference cost
 
 The required token-by-token public SDK API is correct but expensive without an
@@ -473,6 +497,8 @@ measured and removed when it regressed runtime.
 - Only scalar arguments are supported; arrays and nested objects are not.
 - Independently invalid UTF-8 byte fragments are skipped.
 - Greedy decoding has no backtracking if the best valid semantic path is poor.
+- Regex fallback candidates cover common standard patterns and simple quoted
+  literals; unusual patterns still depend on free Qwen generation.
 - Performance scales with generated tokens because the public SDK recomputes the
   full context.
 - The supplied private evaluator is finite and cannot establish accuracy for

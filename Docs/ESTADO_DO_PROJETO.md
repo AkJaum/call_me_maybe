@@ -186,11 +186,14 @@ O carregamento tardio permite validar arquivos sem carregar ou baixar o modelo,
 e falhas do SDK são convertidas em `ModelLoadError`. Não foi encontrado acesso a
 atributos ou métodos privados do SDK no código de `src/`.
 
-O próprio SDK fornecido depende de PyTorch, Transformers e Hugging Face. Essa é a
-implementação interna do pacote entregue; o código do projeto não importa esses
-pacotes diretamente. A proibição do subject deve continuar sendo respeitada no
-código autoral: não se deve contornar a API pública do SDK nem implementar a
-solução diretamente com Transformers.
+O próprio SDK fornecido depende de PyTorch, Transformers e Hugging Face e contém
+um `device_map` CUDA que requer Accelerate. Essa é a implementação interna do
+pacote entregue; o arquivo-fonte atual do SDK é byte a byte igual ao presente em
+`llm_sdk.zip`. `accelerate` foi declarado no manifesto do SDK apenas para completar
+essa dependência interna. O código em `src/` não importa nenhuma dessas bibliotecas,
+o que também é protegido por teste AST. A proibição do subject continua aplicada
+ao código autoral: não se contorna a API pública nem se implementa a solução
+diretamente com frameworks de modelo.
 
 `QwenClient` foi migrado de `dataclass` comum para `BaseModel` Pydantic. A instância
 do SDK permanece em atributo privado Pydantic e continua sendo carregada somente
@@ -204,12 +207,14 @@ demonstrativos válidos e não estão codificados no código-fonte. Nenhum teste
 esses conteúdos específicos: o subject permite que ambos os arquivos sejam
 substituídos durante a peer review, desde que os novos dados satisfaçam o schema.
 
-Existem 67 testes cobrindo os dados demonstrativos, JSON inválido, catálogo
+Existem 63 testes cobrindo os dados demonstrativos, JSON inválido, catálogo
 duplicado, validação dinâmica, tipos escalares, números não finitos e a gramática
 incremental. A gramática é testada com funções alternativas, fragmentos, escapes,
 Unicode, números, função sem argumentos, vocabulário byte-level, máscara de
 logits, limite de geração, violações de estrutura/schema, escrita atômica, CLI,
 cache e visualização. A integração também foi exercitada com o modelo real.
+Há ainda regressões explícitas para Python 3.10, seleção de função sem prefixo
+pré-preenchido, recuperação de regex e ausência de imports proibidos em `src/`.
 
 ### 3.8 Gramática incremental
 
@@ -248,6 +253,8 @@ O que funciona hoje, por inspeção do código:
 - prompt de seleção e extração;
 - máscara explícita de logits inválidos com `-inf`;
 - geração greedy token a token, limite seguro e validação final;
+- fallback de regex limitado, com candidatos compatíveis com a fonte e escolha
+  final feita pelos logits do Qwen;
 - modo de validação sem modelo;
 - modo de inspeção do modelo, desde que dependências e pesos estejam disponíveis;
 - processamento de todos os prompts em uma única carga do modelo;
@@ -267,8 +274,8 @@ fornecida na régua.
 
 | Requisito do subject | Estado | Observação |
 |---|---:|---|
-| Python 3.10+ e `uv` | Conforme | Python `>=3.10`; execução auditada em 3.14.4 |
-| Dependências exigidas | Conforme | `uv sync --locked` passou; SDK local, NumPy e Pydantic |
+| Python 3.10+ e `uv` | Conforme | Sync, 63 testes, Flake8, mypy estrito e CLI passaram em Python 3.10.21 |
+| Dependências exigidas | Conforme | `uv sync --locked` passou; frameworks ficam internos ao SDK fornecido |
 | CLI e caminhos padrão | Conforme | Pipeline real usa padrões e caminhos personalizados |
 | Leitura robusta de JSON | Conforme | Ausente, malformado, UTF-8 inválido e schema inválido testados |
 | Classes com Pydantic | Conforme no código autoral | Estado/configuração usam modelos Pydantic |
@@ -278,24 +285,23 @@ fornecida na régua.
 | Constrained decoding | Implementado por chamada | Vocabulário, gramática e máscara `-inf` integrados |
 | JSON/schema 100% válidos | Verificado nos testes atuais | Gramática, validação final e escrita atômica |
 | Saída com chaves exatas | Conforme nos testes atuais | Pipeline gera somente as três chaves |
-| Desempenho e acurácia | Conforme na Moulinette privada fornecida | 11/11 corretos em 218,91s |
+| Desempenho e acurácia | Conforme nos dois conjuntos fornecidos | Público 11/11 em 47,64s; privado 11/11 em 31,65s |
 | Makefile obrigatório | Conforme | `run` executa pipeline real; alvos obrigatórios presentes |
-| Testes | Boa cobertura atual | 67 testes, benchmark e execução real ponta a ponta |
+| Testes | Boa cobertura atual | 63 testes ativos, benchmark e execução real ponta a ponta |
 | `.gitignore` | Conforme | Inclui artefatos Python e `data/output/` |
 | README obrigatório em inglês | Conforme | Todas as seções exigidas estão presentes |
 
-Verificação acumulada: 67 testes passaram. Em 30/08/2026, o alvo
-`make moulinette-test` processou exatamente os 11 prompts de
-`moulinette/successfully/input` em 218,91s e a Moulinette fornecida atribuiu
-`11/11 (100%)`. O `make run` público também terminou, em 223,62s, sem o antigo
-estouro de 256 tokens; seu score semântico público foi 6/11.
+Verificação acumulada: 63 testes ativos passaram em Python 3.10.21 e 3.14.7. Em
+30/08/2026, o conjunto público e o privado foram executados e avaliados duas
+vezes após as correções finais. Ambos receberam `11/11 (100%)`; as repetições
+temporizadas terminaram em 47,64s e 31,65s, respectivamente.
 
 ## 6. Próximos passos recomendados
 
 ### Etapas 1 a 9 — Implementadas
 
 Contratos, gramática, vocabulário, máscara, geração, pipeline, escrita atômica,
-67 testes, benchmark reproduzível, README e bônus de visualização/cache foram
+63 testes ativos, benchmark reproduzível, README e bônus de visualização/cache foram
 implementados. O próximo foco não é uma nova etapa estrutural, mas preparar a
 defesa, preservar os contratos dinâmicos de entrada e evitar regressões.
 
@@ -327,12 +333,11 @@ possa ser produzida.
 
 ### Evidências reproduzidas nesta auditoria
 
-- `uv sync --locked`: 77 pacotes resolvidos e 70 conferidos, sem erro;
+- `uv sync --locked`: 79 pacotes resolvidos, sem erro;
 - `make install`, `make test`, `make lint` e `make lint-strict`: passaram;
-- 67 testes: todos passaram;
-- `make moulinette-test`: 11/11 privados em 218,91s;
-- `make run`: 11 dados públicos gravados em 223,62s, sem estouro de tokens;
-- pico de memória observado na rota privada: 4.114.900 KiB;
+- 63 testes ativos: todos passaram em Python 3.10.21 e 3.14.7;
+- `make moulinette-test`: 11/11 privados; repetição em 31,65s;
+- `make run` mais correção pública: 11/11; repetição em 47,64s;
 - saída privada relida com `jq`: array válido, 11 resultados e exatamente as
   chaves `prompt`, `name` e `parameters`;
 - arquivo ausente, JSON malformado e UTF-8 inválido: código 1 e mensagem clara,
@@ -354,11 +359,11 @@ possa ser produzida.
 | JSON e schema | Passa nos casos exercitados | Gramática mais três validações finais; chaves exatas do subject |
 | API do SDK | Passa por inspeção | Somente operações públicas chamadas pelo adaptador |
 | Makefile | Passa | Todos os alvos obrigatórios existem e os não interativos foram executados |
-| Qualidade | Passa | 67 testes, `flake8`, `mypy` obrigatório e `mypy --strict` |
+| Qualidade | Passa | 63 testes ativos, `flake8`, `mypy` obrigatório e `mypy --strict` em Python 3.10 e 3.14 |
 | README | Passa | Primeira linha e todas as seções obrigatórias em inglês |
-| Acurácia | Passa no avaliador fornecido | Moulinette privada: 11/11 (100%) |
-| Desempenho | Passa no avaliador fornecido | 218,91s para 11 casos, abaixo de 300s |
-| Moulinette | Passa | `PERFECT — SCORE: 11/11 (100.0%)` |
+| Acurácia | Passa nos avaliadores fornecidos | Público e privado: 11/11 (100%) |
+| Desempenho | Passa nos avaliadores fornecidos | 47,64s público e 31,65s privado, abaixo de 300s |
+| Moulinette | Passa | `PERFECT — SCORE: 11/11 (100.0%)` nos dois conjuntos |
 | Bônus | Passa nos bônus alegados | Visualização real, cache observável, recuperação atômica e suíte ampla |
 
 ### Divergências e riscos para a defesa
@@ -373,20 +378,19 @@ possa ser produzida.
 3. Um prompt sem função correspondente não possui representação de “nenhuma
    chamada” no formato obrigatório. O programa continua escolhendo a alternativa
    de maior logit válida; isso é uma limitação semântica, não uma quebra de JSON.
-4. O tempo cresce com quantidade e comprimento dos prompts. O lote privado passa
-   com margem de 81,09s e o público termina em 223,62s nesta máquina.
-5. O conjunto público termina com JSON/schema válidos, mas sua correção pública
-   atribui 6/11 por escolhas semânticas do modelo. A evidência de 100% de acurácia
-   vale para o conjunto privado solicitado em `successfully/input`, não para todo
-   conjunto dinâmico possível.
+4. O tempo cresce com quantidade e comprimento dos prompts. Os dois conjuntos
+   fornecidos passam com ampla margem nesta máquina CUDA, mas isso não garante o
+   mesmo tempo em CPU ou hardware diferente.
+5. Os dois conjuntos finitos fornecidos atingem 100%; isso não prova acurácia
+   universal para qualquer catálogo ou prompt futuro.
 6. A 42 avalia somente o conteúdo commitado e enviado. Antes da defesa, é preciso
    revisar o diff, criar o commit e confirmar o push. `data/output/` deve continuar
    ignorado.
 
 ### Veredito
 
-Tecnicamente, a parte obrigatória está implementada e passou na Moulinette privada
-fornecida: instalação, constrained decoding, JSON/schema, acurácia, tempo,
-qualidade e documentação têm evidência local. Isso não substitui a avaliação
+Tecnicamente, a parte obrigatória está implementada e passou nos conjuntos público
+e privado fornecidos: instalação, constrained decoding, JSON/schema, acurácia,
+tempo, qualidade e documentação têm evidência local. Isso não substitui a avaliação
 peer-to-peer, que também inclui defesa e inspeção humana, nem garante que mudanças
 não commitadas estarão presentes no repositório entregue.

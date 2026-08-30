@@ -11,10 +11,11 @@ from src.generation import (
     ConstrainedDecoder,
     GenerationConfig,
     GenerationError,
+    _pattern_candidates,
+    _pattern_matches_source,
     _repair_near_verbatim_string,
     build_parameter_prompt,
     mask_invalid_logits,
-    parse_generated_result,
     select_highest_logit,
 )
 from src.model import QwenClient
@@ -125,6 +126,36 @@ def test_decoder_uses_model_logits_but_blocks_invalid_choice(tmp_path: Path) -> 
     assert trace.cache_misses == 0
 
 
+def test_function_selection_scores_names_without_prefilling_common_prefix(
+    tmp_path: Path,
+) -> None:
+    """Let constrained model logits choose even when every name starts alike."""
+    fragments = ["fn_alpha", "fn_beta", "#"]
+    path = tmp_path / "vocab.json"
+    path.write_text(
+        json.dumps({fragment: index for index, fragment in enumerate(fragments)}),
+        encoding="utf-8",
+    )
+    client = make_client(path, planned_ids=[1, 0], vocab_size=len(fragments))
+    decoder = ConstrainedDecoder.from_client(client)
+    functions = [
+        FunctionDefinition(
+            name=name,
+            description=description,
+            parameters={},
+            returns=TypeDefinition(type="boolean"),
+        )
+        for name, description in (
+            ("fn_alpha", "Select alpha."),
+            ("fn_beta", "Select beta."),
+        )
+    ]
+
+    result = decoder.generate("Select beta", functions)
+
+    assert result.name == "fn_beta"
+
+
 def test_generation_stops_at_configured_token_limit(tmp_path: Path) -> None:
     """Fail gracefully instead of entering an unbounded generation loop."""
     path = tmp_path / "vocab.json"
@@ -160,42 +191,6 @@ def test_generation_reports_when_no_token_can_continue(tmp_path: Path) -> None:
 
     with pytest.raises(GenerationError, match="no vocabulary token"):
         decoder.generate("Ping", [function])
-
-
-@pytest.mark.parametrize(
-    "document",
-    [
-        '{"name":"fn_ping","parameters":{},"extra":1}',
-        '{"name":"fn_missing","parameters":{}}',
-        '{"name":"fn_ping","parameters":{"extra":1}}',
-        "not-json",
-    ],
-)
-def test_final_generated_document_is_validated_again(document: str) -> None:
-    """Keep final Pydantic validation as defense in depth after the grammar."""
-    function = FunctionDefinition(
-        name="fn_ping",
-        description="Ping.",
-        parameters={},
-        returns=TypeDefinition(type="boolean"),
-    )
-    with pytest.raises(GenerationError, match="failed final validation"):
-        parse_generated_result(document, "Ping", [function])
-
-
-def test_compact_number_is_normalized_for_strict_python_consumers() -> None:
-    """Write JSON-schema numbers as floats even when Qwen emits an integer."""
-    function = FunctionDefinition(
-        name="fn_scale",
-        description="Scale a number.",
-        parameters={"value": TypeDefinition(type="number")},
-        returns=TypeDefinition(type="number"),
-    )
-
-    result = parse_generated_result('["fn_scale",3]', "Scale 3", [function])
-
-    assert result.parameters == {"value": 3.0}
-    assert isinstance(result.parameters["value"], float)
 
 
 def test_unique_single_character_copy_error_is_repaired() -> None:
@@ -257,6 +252,39 @@ def test_parameter_prompt_disables_reasoning_and_supports_derived_values() -> No
     )
 
     assert "derive the concise machine-readable value" in prompt
+    assert "never the complete request or its command words" in prompt
+    assert "use Python syntax without slash delimiters" in prompt
+    assert r"digits as \d+" in prompt
+    assert r"complete word X as \bX\b" in prompt
     assert "Signature: fn_transform(pattern:string)" in prompt
     assert "/no_think<|im_end|>" in prompt
     assert prompt.endswith("<|im_start|>assistant\nJSON:")
+
+
+def test_numeric_parameter_prompt_omits_string_pattern_guidance() -> None:
+    """Keep unrelated semantic examples out of numeric extraction context."""
+    function = FunctionDefinition(
+        name="fn_add",
+        description="Add two numbers.",
+        parameters={"a": TypeDefinition(type="number")},
+        returns=TypeDefinition(type="number"),
+    )
+
+    prompt = build_parameter_prompt("Add 2", function, "a", "number")
+
+    assert "digits as" not in prompt
+    assert "replacement parameter" not in prompt
+
+
+def test_pattern_fallback_candidates_must_match_generated_source() -> None:
+    """Exclude replacement-only literals from constrained regex recovery."""
+    prompt = "Replace the word 'cat' with 'dog' in 'one cat here'"
+
+    candidates = _pattern_candidates(prompt, "one cat here")
+    patterns = {pattern for _, pattern, _ in candidates}
+
+    assert "cat" in patterns
+    assert r"\bcat\b" in patterns
+    assert "dog" not in patterns
+    assert _pattern_matches_source(r"\bcat\b", "one cat here")
+    assert not _pattern_matches_source("[", "one cat here")

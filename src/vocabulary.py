@@ -2,14 +2,9 @@
 
 import json
 from pathlib import Path
-from typing import Self
-
 from pydantic import BaseModel, ConfigDict, Field, PrivateAttr, model_validator
 
-from src.grammar import CompactFunctionCallGrammar, FunctionCallGrammar
-
-
-Grammar = FunctionCallGrammar | CompactFunctionCallGrammar
+from src.grammar import FunctionCallGrammar
 
 
 class VocabularyError(ValueError):
@@ -45,7 +40,7 @@ class TokenVocabulary(BaseModel):
     _special_string_ids: tuple[int, ...] = PrivateAttr(default=())
 
     @model_validator(mode="after")
-    def validate_fragments(self) -> Self:
+    def validate_fragments(self) -> "TokenVocabulary":
         """Reject negative IDs and empty fragments at the model boundary."""
         if any(token_id < 0 for token_id in self.fragments):
             raise ValueError("token identifiers must not be negative")
@@ -72,7 +67,7 @@ class TokenVocabulary(BaseModel):
         self._special_string_ids = tuple(special_string_ids)
 
     @classmethod
-    def from_file(cls, path: Path) -> Self:
+    def from_file(cls, path: Path) -> "TokenVocabulary":
         """Load a Hugging Face byte-level BPE ``vocab.json`` file."""
         try:
             with path.open(encoding="utf-8") as stream:
@@ -120,7 +115,7 @@ class TokenVocabulary(BaseModel):
         return cls(fragments=fragments, skipped_tokens=skipped)
 
     def allowed_token_ids(
-        self, grammar: Grammar, logits_count: int
+        self, grammar: FunctionCallGrammar, logits_count: int
     ) -> tuple[int, ...]:
         """Return token IDs whose complete fragments preserve the grammar."""
         if logits_count <= 0:
