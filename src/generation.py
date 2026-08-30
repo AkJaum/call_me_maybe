@@ -95,7 +95,8 @@ class ConstrainedDecoder(BaseModel):
         prompt: str,
         functions: list[FunctionDefinition],
     ) -> FunctionCallResult:
-        """Generate and validate one function call for a natural-language prompt."""
+        """Generate and validate one function call for a natural-language
+        prompt."""
         return self._generate(prompt, functions, collect_trace=False).result
 
     def generate_with_trace(
@@ -103,7 +104,8 @@ class ConstrainedDecoder(BaseModel):
         prompt: str,
         functions: list[FunctionDefinition],
     ) -> GenerationTrace:
-        """Generate one call and retain each valid-token decision for display."""
+        """Generate one call and retain each valid-token decision for
+        display."""
         return self._generate(prompt, functions, collect_trace=True)
 
     def _generate(
@@ -170,9 +172,13 @@ class ConstrainedDecoder(BaseModel):
         )
         header = (
             '{"name":'
-            + json.dumps(function.name, ensure_ascii=True, separators=(",", ":"))
+            + json.dumps(
+                function.name, ensure_ascii=True, separators=(",", ":")
+            )
             + ',"parameters":{'
-            + json.dumps(parameter_name, ensure_ascii=True, separators=(",", ":"))
+            + json.dumps(
+                parameter_name, ensure_ascii=True, separators=(",", ":")
+            )
             + ":"
         )
         if value_type == "string":
@@ -180,15 +186,20 @@ class ConstrainedDecoder(BaseModel):
         grammar = FunctionCallGrammar(
             functions=(single_parameter_function,)
         ).advance(header)
-        model_prompt = build_parameter_prompt(
-            prompt,
-            function,
-            parameter_name,
-            value_type,
-        ) + header
+        model_prompt = (
+            build_parameter_prompt(
+                prompt,
+                function,
+                parameter_name,
+                value_type,
+            )
+            + header
+        )
         prompt_ids = self.client.encode(model_prompt)
         if not prompt_ids:
-            raise GenerationError("the model encoded the prompt as an empty sequence")
+            raise GenerationError(
+                "the model encoded the prompt as an empty sequence"
+            )
 
         generated_ids: list[int] = []
         steps: list[GenerationStep] = []
@@ -199,7 +210,9 @@ class ConstrainedDecoder(BaseModel):
             token_limit = min(token_limit, 64)
         for offset in range(token_limit):
             logits = self.client.next_token_logits(prompt_ids + generated_ids)
-            allowed_ids = self.vocabulary.allowed_token_ids(grammar, len(logits))
+            allowed_ids = self.vocabulary.allowed_token_ids(
+                grammar, len(logits)
+            )
             masked_logits = mask_invalid_logits(logits, allowed_ids)
             token_id = select_highest_logit(masked_logits)
             fragment = self.vocabulary.fragments[token_id]
@@ -230,9 +243,10 @@ class ConstrainedDecoder(BaseModel):
                         normalized, source_text
                     ):
                         return normalized, steps
-                    return self._select_pattern_fallback(
-                        prompt, source_text
-                    ), steps
+                    return (
+                        self._select_pattern_fallback(prompt, source_text),
+                        steps,
+                    )
                 return _repair_near_verbatim_string(normalized, prompt), steps
         if pattern_parameter and source_text is not None:
             return self._select_pattern_fallback(prompt, source_text), steps
@@ -243,10 +257,13 @@ class ConstrainedDecoder(BaseModel):
         )
 
     def _select_pattern_fallback(self, prompt: str, source_text: str) -> str:
-        """Let Qwen select a concise source-matching regex after free-form failure."""
+        """Let Qwen select a concise source-matching regex after free-form
+        failure."""
         candidates = _pattern_candidates(prompt, source_text)
         if not candidates:
-            raise GenerationError("no source-matching regex fallback is available")
+            raise GenerationError(
+                "no source-matching regex fallback is available"
+            )
         strategies = [
             FunctionDefinition(
                 name=name,
@@ -257,8 +274,9 @@ class ConstrainedDecoder(BaseModel):
             for name, _, description in candidates
         ]
         selection_prompt = (
-            "Choose the regex strategy matching what the request replaces in the "
-            f"source text, never the replacement value. Request: {prompt}"
+            "Choose the regex strategy matching what the request replaces "
+            f"in the source text, never the replacement value. "
+            f"Request: {prompt}"
         )
         selected = self._select_function(selection_prompt, strategies)
         return next(
@@ -270,12 +288,17 @@ class ConstrainedDecoder(BaseModel):
         prompt: str,
         functions: list[FunctionDefinition],
     ) -> FunctionDefinition:
-        """Choose a catalog function using context-calibrated constrained logits."""
+        """Choose a catalog function using context-calibrated constrained
+        logits."""
         if len(functions) == 1:
             return functions[0]
-        targets = {function.name: function.name + "\n" for function in functions}
+        targets = {
+            function.name: function.name + "\n" for function in functions
+        }
         prefix = ""
-        schema_key = "|".join(function.model_dump_json() for function in functions)
+        schema_key = "|".join(
+            function.model_dump_json() for function in functions
+        )
         for _ in range(self.config.max_new_tokens):
             viable = {
                 name: target
@@ -307,7 +330,9 @@ class ConstrainedDecoder(BaseModel):
                 )
                 self._selection_baselines[baseline_key] = baseline_logits
             if len(actual_logits) != len(baseline_logits):
-                raise GenerationError("selection logits changed vocabulary size")
+                raise GenerationError(
+                    "selection logits changed vocabulary size"
+                )
 
             candidates = [
                 token_id
@@ -319,7 +344,9 @@ class ConstrainedDecoder(BaseModel):
                 )
             ]
             if not candidates:
-                raise GenerationError("no token can continue function selection")
+                raise GenerationError(
+                    "no token can continue function selection"
+                )
             token_id = max(
                 candidates,
                 key=lambda candidate: (
@@ -345,40 +372,46 @@ def build_parameter_prompt(
     if value_type == "string":
         normalized_name = parameter_name.casefold()
         parameter_guidance = (
-            "When the request supplies a literal string, entity, path, or template "
-            "for this parameter, copy only that value verbatim and use JSON escapes. "
-            "When it represents an instruction, pattern, format, or mode, derive the "
-            "concise machine-readable value required by the function. "
+            "When the request supplies a literal string, entity, path, or "
+            "template for this parameter, copy only that value verbatim "
+            "and use JSON escapes. When it represents an instruction, "
+            "pattern, format, or mode, derive the concise "
+            "machine-readable value required by the function. "
         )
         if "regex" in normalized_name or "pattern" in normalized_name:
             parameter_guidance += (
-                "For a regular expression or pattern, use Python syntax without "
-                "slash delimiters, match only the requested occurrences, and use "
-                "word boundaries when the request targets a complete word. Interpret "
-                r"common descriptions using standard syntax: digits as \d+, "
-                r"vowels as [aeiouAEIOU], and complete word X as \bX\b. "
+                "For a regular expression or pattern, use Python syntax "
+                "without slash delimiters, match only the requested "
+                "occurrences, and use word boundaries when the request "
+                "targets a complete word. Interpret common descriptions "
+                r"using standard syntax: digits as \d+, vowels as "
+                r"[aeiouAEIOU], and complete word X as \bX\b. "
             )
-        if "replacement" in normalized_name or "substitution" in normalized_name:
+        if (
+            "replacement" in normalized_name
+            or "substitution" in normalized_name
+        ):
             parameter_guidance += (
-                "For this replacement parameter, return exactly one corresponding "
-                "symbol, such as * for an asterisk, unless a repeated count is "
-                "explicitly requested. "
+                "For this replacement parameter, return exactly one "
+                "corresponding symbol, such as * for an asterisk, unless a "
+                "repeated count is explicitly requested. "
             )
         else:
             parameter_guidance += (
-                "For a symbolic replacement described by name, return exactly one "
-                "corresponding symbol, such as * for an asterisk, unless a repeated "
-                "count is explicitly requested. "
+                "For a symbolic replacement described by name, return "
+                "exactly one corresponding symbol, such as * for an "
+                "asterisk, unless a repeated count is explicitly "
+                "requested. "
             )
     return (
         "<|im_start|>system\n"
-        "Extract exactly one function argument. Return only the concise value "
-        "inside the already-started JSON and close the JSON immediately. "
-        "Return the value for the named target parameter, never the complete "
-        "request or its command words. "
+        "Extract exactly one function argument. Return only the concise "
+        "value inside the already-started JSON and close the JSON "
+        "immediately. Return the value for the named target parameter, "
+        "never the complete request or its command words. "
         f"{parameter_guidance}"
-        "Respect the target parameter name and never return a sibling parameter's "
-        "value. Never explain or show reasoning.<|im_end|>\n"
+        "Respect the target parameter name and never return a sibling "
+        "parameter's value. Never explain or show reasoning.<|im_end|>\n"
         "<|im_start|>user\n"
         f"Function: {function.name} - {function.description}\n"
         f"Signature: {function.name}({signature})\n"
@@ -427,7 +460,9 @@ def select_highest_logit(masked_logits: list[float]) -> int:
         raise GenerationError("the model returned an empty logits vector")
     token_id = max(range(len(masked_logits)), key=masked_logits.__getitem__)
     if masked_logits[token_id] == -math.inf:
-        raise GenerationError("no vocabulary token can continue the JSON grammar")
+        raise GenerationError(
+            "no vocabulary token can continue the JSON grammar"
+        )
     return token_id
 
 
@@ -463,7 +498,8 @@ def _find_source_text(parameters: dict[str, object]) -> str | None:
 
 
 def _pattern_matches_source(pattern: str, source_text: str) -> bool:
-    """Return whether a generated Python regex compiles and matches its source."""
+    """Return whether a generated Python regex compiles and matches its
+    source."""
     try:
         return re.search(pattern, source_text) is not None
     except re.error:
@@ -474,10 +510,19 @@ def _pattern_candidates(
     prompt: str,
     source_text: str,
 ) -> list[tuple[str, str, str]]:
-    """Build standard regex strategies and keep only source-matching candidates."""
+    """Build standard regex strategies and keep only source-matching
+    candidates."""
     candidates: list[tuple[str, str, str]] = [
-        ("pattern_digits", r"\d+", "Match one or more source digits or numbers."),
-        ("pattern_vowels", "[aeiouAEIOU]", "Match each individual source vowel."),
+        (
+            "pattern_digits",
+            r"\d+",
+            "Match one or more source digits or numbers.",
+        ),
+        (
+            "pattern_vowels",
+            "[aeiouAEIOU]",
+            "Match each individual source vowel.",
+        ),
     ]
     quoted_values = re.findall(r"'([^']+)'|\"([^\"]+)\"", prompt)
     for index, pair in enumerate(quoted_values, start=1):
@@ -518,7 +563,7 @@ def _repair_near_verbatim_string(value: object, prompt: str) -> object:
     maximum_length = min(len(prompt), len(value) + maximum_edits)
     for candidate_length in range(minimum_length, maximum_length + 1):
         for start in range(len(prompt) - candidate_length + 1):
-            candidate = prompt[start:start + candidate_length]
+            candidate = prompt[start : start + candidate_length]
             distance = _bounded_edit_distance(
                 value,
                 candidate,

@@ -86,15 +86,21 @@ def test_mask_sets_every_invalid_logit_to_negative_infinity() -> None:
         select_highest_logit([])
 
 
-def test_decoder_uses_model_logits_but_blocks_invalid_choice(tmp_path: Path) -> None:
+def test_decoder_uses_model_logits_but_blocks_invalid_choice(
+    tmp_path: Path,
+) -> None:
     """Generate a typed call while grammar-masking a higher invalid logit."""
     fragments = ["2", "}}", "3", "#"]
     path = tmp_path / "vocab.json"
     path.write_text(
-        json.dumps({fragment: index for index, fragment in enumerate(fragments)}),
+        json.dumps(
+            {fragment: index for index, fragment in enumerate(fragments)}
+        ),
         encoding="utf-8",
     )
-    client = make_client(path, planned_ids=[0, 1, 2, 1], vocab_size=len(fragments))
+    client = make_client(
+        path, planned_ids=[0, 1, 2, 1], vocab_size=len(fragments)
+    )
     decoder = ConstrainedDecoder.from_client(
         client,
         GenerationConfig(max_new_tokens=16),
@@ -119,9 +125,7 @@ def test_decoder_uses_model_logits_but_blocks_invalid_choice(tmp_path: Path) -> 
     assert trace.result == result
     assert [step.index for step in trace.steps] == list(range(1, 5))
     assert all(step.allowed_token_count >= 1 for step in trace.steps)
-    assert trace.steps[-1].prefix == (
-        '{"name":"fn_add","parameters":{"b":3}}'
-    )
+    assert trace.steps[-1].prefix == ('{"name":"fn_add","parameters":{"b":3}}')
     assert trace.cache_hits == 4
     assert trace.cache_misses == 0
 
@@ -133,7 +137,9 @@ def test_function_selection_scores_names_without_prefilling_common_prefix(
     fragments = ["fn_alpha", "fn_beta", "#"]
     path = tmp_path / "vocab.json"
     path.write_text(
-        json.dumps({fragment: index for index, fragment in enumerate(fragments)}),
+        json.dumps(
+            {fragment: index for index, fragment in enumerate(fragments)}
+        ),
         encoding="utf-8",
     )
     client = make_client(path, planned_ids=[1, 0], vocab_size=len(fragments))
@@ -231,11 +237,15 @@ def test_unique_three_character_copy_error_is_repaired() -> None:
 
 def test_near_verbatim_repair_does_not_guess() -> None:
     """Keep derived and ambiguous values exactly as the model generated them."""
-    assert _repair_near_verbatim_string(r"\d+", "Replace all numbers") == r"\d+"
+    assert (
+        _repair_near_verbatim_string(r"\d+", "Replace all numbers") == r"\d+"
+    )
     assert _repair_near_verbatim_string("catx", "caty catz") == "catx"
 
 
-def test_parameter_prompt_disables_reasoning_and_supports_derived_values() -> None:
+def test_parameter_prompt_disables_reasoning_and_supports_derived_values() -> (
+    None
+):
     """Prevent explanations while allowing non-literal string arguments."""
     function = FunctionDefinition(
         name="fn_transform",

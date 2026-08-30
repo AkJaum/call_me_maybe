@@ -26,8 +26,8 @@ def render_generation_report(traces: list[GenerationTrace]) -> str:
   <style>
     :root {{ color-scheme: light dark; font-family: system-ui, sans-serif; }}
     body {{ margin: 0 auto; max-width: 1100px; padding: 2rem; }}
-    article {{ border: 1px solid #8886; border-radius: .75rem; margin: 1.5rem 0;
-      padding: 1rem; }}
+    article {{ border: 1px solid #8886; border-radius: .75rem;
+      margin: 1.5rem 0; padding: 1rem; }}
     .summary {{ display: flex; flex-wrap: wrap; gap: .75rem 1.5rem; }}
     table {{ border-collapse: collapse; display: block; overflow-x: auto;
       width: 100%; }}

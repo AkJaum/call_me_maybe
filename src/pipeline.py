@@ -9,7 +9,8 @@ def generate_results(
     prompts: list[PromptInput],
     functions: list[FunctionDefinition],
 ) -> list[FunctionCallResult]:
-    """Generate one validated function call per prompt, preserving input order."""
+    """Generate one validated function call per prompt, preserving input
+    order."""
     results: list[FunctionCallResult] = []
     for prompt in prompts:
         results.append(decoder.generate(prompt.prompt, functions))

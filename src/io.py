@@ -44,7 +44,9 @@ def load_function_definitions(path: Path) -> list[FunctionDefinition]:
     try:
         return FunctionCatalog.model_validate(_load_json(path)).root
     except ValidationError as exc:
-        raise InputFileError(f"invalid function definitions in {path}: {exc}") from exc
+        raise InputFileError(
+            f"invalid function definitions in {path}: {exc}"
+        ) from exc
 
 
 def load_prompts(path: Path) -> list[PromptInput]:
@@ -56,7 +58,8 @@ def load_prompts(path: Path) -> list[PromptInput]:
 
 
 def write_results(path: Path, results: list[FunctionCallResult]) -> None:
-    """Atomically write validated results, preserving an older file on failure."""
+    """Atomically write validated results, preserving an older file on
+    failure."""
     temporary_path: Path | None = None
     try:
         path.parent.mkdir(parents=True, exist_ok=True)
@@ -81,4 +84,6 @@ def write_results(path: Path, results: list[FunctionCallResult]) -> None:
                 temporary_path.unlink(missing_ok=True)
             except OSError:
                 pass
-        raise InputFileError(f"could not write output file {path}: {exc}") from exc
+        raise InputFileError(
+            f"could not write output file {path}: {exc}"
+        ) from exc

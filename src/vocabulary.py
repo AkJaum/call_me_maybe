@@ -49,7 +49,8 @@ class TokenVocabulary(BaseModel):
         return self
 
     def model_post_init(self, __context: object) -> None:
-        """Index token categories once instead of scanning the full vocabulary."""
+        """Index token categories once instead of scanning the full
+        vocabulary."""
         first_character_index: dict[str, list[int]] = {}
         plain_string_ids: list[int] = []
         special_string_ids: list[int] = []
@@ -73,7 +74,9 @@ class TokenVocabulary(BaseModel):
             with path.open(encoding="utf-8") as stream:
                 raw: object = json.load(stream)
         except FileNotFoundError as exc:
-            raise VocabularyError(f"vocabulary file not found: {path}") from exc
+            raise VocabularyError(
+                f"vocabulary file not found: {path}"
+            ) from exc
         except json.JSONDecodeError as exc:
             raise VocabularyError(
                 f"invalid vocabulary JSON at line {exc.lineno}, "
@@ -84,7 +87,9 @@ class TokenVocabulary(BaseModel):
                 f"vocabulary is not valid UTF-8: {path} at byte {exc.start}"
             ) from exc
         except OSError as exc:
-            raise VocabularyError(f"could not read vocabulary {path}: {exc}") from exc
+            raise VocabularyError(
+                f"could not read vocabulary {path}: {exc}"
+            ) from exc
 
         if not isinstance(raw, dict):
             raise VocabularyError("vocabulary root must be a JSON object")
@@ -99,11 +104,15 @@ class TokenVocabulary(BaseModel):
                 or not isinstance(token_id, int)
                 or isinstance(token_id, bool)
             ):
-                raise VocabularyError("vocabulary must map strings to integer IDs")
+                raise VocabularyError(
+                    "vocabulary must map strings to integer IDs"
+                )
             if token_id < 0:
                 raise VocabularyError("token identifiers must not be negative")
             if token_id in seen_ids:
-                raise VocabularyError(f"duplicate token identifier: {token_id}")
+                raise VocabularyError(
+                    f"duplicate token identifier: {token_id}"
+                )
             seen_ids.add(token_id)
             fragment = _decode_token(encoded_token, byte_decoder)
             if fragment is None or not fragment:
@@ -205,7 +214,8 @@ def _decode_token(encoded_token: str, decoder: dict[str, int]) -> str | None:
 
 
 def _is_plain_string_fragment(fragment: str) -> bool:
-    """Recognize text that cannot close, escape, or invalidate a JSON string."""
+    """Recognize text that cannot close, escape, or invalidate a JSON
+    string."""
     return all(
         character not in {'"', "\\"} and ord(character) >= 0x20
         for character in fragment

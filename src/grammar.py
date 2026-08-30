@@ -8,8 +8,9 @@ from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from src.models import FunctionDefinition, JsonType
 
-
-_JSON_NUMBER = re.compile(r"-?(?:0|[1-9][0-9]*)(?:\.[0-9]+)?(?:[eE][+-]?[0-9]+)?")
+_JSON_NUMBER = re.compile(
+    r"-?(?:0|[1-9][0-9]*)(?:\.[0-9]+)?(?:[eE][+-]?[0-9]+)?"
+)
 _NUMBER_PREFIX = re.compile(
     r"(?:|-|-?0|-?[1-9][0-9]*|-?(?:0|[1-9][0-9]*)\."
     r"|-?(?:0|[1-9][0-9]*)\.[0-9]+"
@@ -30,8 +31,9 @@ class PrefixStatus(str, Enum):
 class FunctionCallGrammar(BaseModel):
     """Track a canonical function-call JSON prefix against several schemas.
 
-    The generated document intentionally excludes the original prompt. The caller
-    already owns that value and appends it when building ``FunctionCallResult``.
+    The generated document intentionally excludes the original prompt. The
+    caller already owns that value and appends it when building
+    ``FunctionCallResult``.
     """
 
     model_config = ConfigDict(frozen=True)
@@ -43,13 +45,17 @@ class FunctionCallGrammar(BaseModel):
     def validate_prefix(self) -> "FunctionCallGrammar":
         """Prevent construction of grammar states that cannot be completed."""
         if self.status() is PrefixStatus.INVALID:
-            raise ValueError("prefix cannot produce a schema-compliant function call")
+            raise ValueError(
+                "prefix cannot produce a schema-compliant function call"
+            )
         return self
 
     def status(self) -> PrefixStatus:
-        """Return the best match status across all available function schemas."""
+        """Return the best match status across all available function
+        schemas."""
         statuses = [
-            _match_document(self.prefix, function) for function in self.functions
+            _match_document(self.prefix, function)
+            for function in self.functions
         ]
         if any(status is PrefixStatus.COMPLETE for status in statuses):
             return PrefixStatus.COMPLETE
@@ -58,7 +64,8 @@ class FunctionCallGrammar(BaseModel):
         return PrefixStatus.INVALID
 
     def can_accept(self, fragment: str) -> bool:
-        """Return whether an entire character or token fragment preserves validity."""
+        """Return whether an entire character or token fragment preserves
+        validity."""
         if not fragment or self.status() is PrefixStatus.COMPLETE:
             return False
         candidate = self.prefix + fragment
@@ -70,7 +77,9 @@ class FunctionCallGrammar(BaseModel):
     def advance(self, fragment: str) -> "FunctionCallGrammar":
         """Return a new immutable grammar state after accepting a fragment."""
         if not self.can_accept(fragment):
-            raise ValueError(f"invalid constrained-decoding fragment: {fragment!r}")
+            raise ValueError(
+                f"invalid constrained-decoding fragment: {fragment!r}"
+            )
         return self.model_copy(update={"prefix": self.prefix + fragment})
 
     def is_inside_plain_string(self) -> bool:
@@ -147,8 +156,9 @@ def _match_document(text: str, function: FunctionDefinition) -> PrefixStatus:
 def _match_fixed(
     text: str, position: int, expected: str
 ) -> tuple[PrefixStatus, int]:
-    """Match fixed syntax, distinguishing an unfinished prefix from a mismatch."""
-    available = text[position:position + len(expected)]
+    """Match fixed syntax, distinguishing an unfinished prefix from a
+    mismatch."""
+    available = text[position : position + len(expected)]
     if not expected.startswith(available):
         return PrefixStatus.INVALID, 0
     if len(available) < len(expected):
@@ -159,7 +169,8 @@ def _match_fixed(
 def _match_value(
     text: str, position: int, value_type: JsonType
 ) -> tuple[PrefixStatus, int]:
-    """Match one scalar JSON value, leaving structural delimiters unconsumed."""
+    """Match one scalar JSON value, leaving structural delimiters
+    unconsumed."""
     if value_type == "string":
         return _match_string(text, position)
     if value_type == "boolean":
@@ -192,7 +203,7 @@ def _match_string(text: str, position: int) -> tuple[PrefixStatus, int]:
             continue
         if escape != "u":
             return PrefixStatus.INVALID, 0
-        digits = text[index + 1:index + 5]
+        digits = text[index + 1 : index + 5]
         if any(digit not in "0123456789abcdefABCDEF" for digit in digits):
             return PrefixStatus.INVALID, 0
         if len(digits) < 4:
@@ -205,7 +216,9 @@ def _match_boolean(text: str, position: int) -> tuple[PrefixStatus, int]:
     """Match either JSON boolean literal."""
     remaining = text[position:]
     candidates = [
-        literal for literal in ("true", "false") if literal.startswith(remaining)
+        literal
+        for literal in ("true", "false")
+        if literal.startswith(remaining)
     ]
     if candidates:
         if remaining in candidates:
@@ -220,7 +233,8 @@ def _match_boolean(text: str, position: int) -> tuple[PrefixStatus, int]:
 def _match_number(
     text: str, position: int, integer_only: bool
 ) -> tuple[PrefixStatus, int]:
-    """Match a finite JSON number or integer without consuming its delimiter."""
+    """Match a finite JSON number or integer without consuming its
+    delimiter."""
     index = position
     while index < len(text) and text[index] in "-+0123456789.eE":
         index += 1
@@ -245,4 +259,6 @@ def _is_complete_number(value: str, integer_only: bool) -> bool:
     """Return whether a numeric fragment is a complete allowed JSON number."""
     if not _JSON_NUMBER.fullmatch(value):
         return False
-    return not integer_only or all(character not in value for character in ".eE")
+    return not integer_only or all(
+        character not in value for character in ".eE"
+    )

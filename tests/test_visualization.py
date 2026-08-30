@@ -5,7 +5,11 @@ from pathlib import Path
 import pytest
 
 from src.generation import GenerationStep, GenerationTrace
-from src.models import FunctionDefinition, TypeDefinition, build_function_call_result
+from src.models import (
+    FunctionDefinition,
+    TypeDefinition,
+    build_function_call_result,
+)
 from src.visualization import (
     VisualizationError,
     render_generation_report,
@@ -49,7 +53,9 @@ def make_trace(prompt: str = "Add 2 and 3") -> GenerationTrace:
 
 def test_report_visualizes_decisions_and_escapes_untrusted_text() -> None:
     """Expose useful trace fields without allowing prompt HTML injection."""
-    report = render_generation_report([make_trace("<script>alert(1)</script>")])
+    report = render_generation_report(
+        [make_trace("<script>alert(1)</script>")]
+    )
 
     assert "Constrained decoding trace" in report
     assert "Qwen/Qwen3-0.6B" in report
@@ -79,7 +85,9 @@ def test_failed_report_write_preserves_previous_target(tmp_path: Path) -> None:
     marker = output / "marker"
     marker.write_text("keep", encoding="utf-8")
 
-    with pytest.raises(VisualizationError, match="could not write visualization"):
+    with pytest.raises(
+        VisualizationError, match="could not write visualization"
+    ):
         write_generation_report(output, [make_trace()])
 
     assert marker.read_text(encoding="utf-8") == "keep"

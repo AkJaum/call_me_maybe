@@ -32,10 +32,14 @@ def test_report_calculates_rates_and_subject_targets() -> None:
     """Calculate accuracy against labels without feeding labels to generation."""
     cases = [
         BenchmarkCase(
-            prompt="one", expected_name="fn_value", expected_parameters={"value": 1}
+            prompt="one",
+            expected_name="fn_value",
+            expected_parameters={"value": 1},
         ),
         BenchmarkCase(
-            prompt="two", expected_name="fn_value", expected_parameters={"value": 2}
+            prompt="two",
+            expected_name="fn_value",
+            expected_parameters={"value": 2},
         ),
     ]
     results = [make_result("one", 1), make_result("two", 2)]
@@ -57,7 +61,9 @@ def test_report_counts_failures_and_slow_runs() -> None:
     """Fail targets when generation is invalid, inaccurate, or too slow."""
     cases = [
         BenchmarkCase(
-            prompt="one", expected_name="fn_value", expected_parameters={"value": 1}
+            prompt="one",
+            expected_name="fn_value",
+            expected_parameters={"value": 1},
         )
     ]
     report = build_report(

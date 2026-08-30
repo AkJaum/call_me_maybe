@@ -82,7 +82,9 @@ def test_duplicate_function_names_are_rejected(tmp_path: Path) -> None:
         load_function_definitions(path)
 
 
-def test_results_are_written_with_exact_keys_and_unicode(tmp_path: Path) -> None:
+def test_results_are_written_with_exact_keys_and_unicode(
+    tmp_path: Path,
+) -> None:
     """Write the required JSON array and preserve non-ASCII arguments."""
     function_document = {
         "name": "fn_greet",
@@ -91,7 +93,9 @@ def test_results_are_written_with_exact_keys_and_unicode(tmp_path: Path) -> None
         "returns": {"type": "string"},
     }
     functions_path = tmp_path / "functions.json"
-    functions_path.write_text(json.dumps([function_document]), encoding="utf-8")
+    functions_path.write_text(
+        json.dumps([function_document]), encoding="utf-8"
+    )
     functions = load_function_definitions(functions_path)
     result = build_function_call_result(
         "Cumprimente José", "fn_greet", {"name": "José"}, functions

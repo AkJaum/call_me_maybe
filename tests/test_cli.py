@@ -42,7 +42,9 @@ def test_cli_processes_all_prompts_and_writes_custom_output(
     capsys: pytest.CaptureFixture[str],
 ) -> None:
     """Reuse one decoder, preserve order, and emit the exact output schema."""
-    definitions_path, prompts_path = write_inputs(tmp_path, ["Echo one", "Echo two"])
+    definitions_path, prompts_path = write_inputs(
+        tmp_path, ["Echo one", "Echo two"]
+    )
     output = tmp_path / "out" / "calls.json"
     loaded: list[QwenClient] = []
 
@@ -63,8 +65,12 @@ def test_cli_processes_all_prompts_and_writes_custom_output(
 
     functions = load_function_definitions(definitions_path)
     decoder.generate.side_effect = [
-        build_function_call_result("Echo one", "fn_echo", {"text": "one"}, functions),
-        build_function_call_result("Echo two", "fn_echo", {"text": "two"}, functions),
+        build_function_call_result(
+            "Echo one", "fn_echo", {"text": "one"}, functions
+        ),
+        build_function_call_result(
+            "Echo two", "fn_echo", {"text": "two"}, functions
+        ),
     ]
 
     status = main(
@@ -82,8 +88,16 @@ def test_cli_processes_all_prompts_and_writes_custom_output(
     assert len(loaded) == 1
     assert decoder.generate.call_count == 2
     assert json.loads(output.read_text(encoding="utf-8")) == [
-        {"prompt": "Echo one", "name": "fn_echo", "parameters": {"text": "one"}},
-        {"prompt": "Echo two", "name": "fn_echo", "parameters": {"text": "two"}},
+        {
+            "prompt": "Echo one",
+            "name": "fn_echo",
+            "parameters": {"text": "one"},
+        },
+        {
+            "prompt": "Echo two",
+            "name": "fn_echo",
+            "parameters": {"text": "two"},
+        },
     ]
     assert f"Wrote 2 function calls to {output}." in capsys.readouterr().out
 

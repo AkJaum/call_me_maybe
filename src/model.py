@@ -5,7 +5,6 @@ from typing import Any, cast
 
 from pydantic import BaseModel, ConfigDict, PrivateAttr
 
-
 DEFAULT_MODEL = "Qwen/Qwen3-0.6B"
 
 
@@ -22,12 +21,17 @@ class QwenClient(BaseModel):
     _sdk: Any = PrivateAttr(default=None)
 
     def load(self) -> None:
-        """Load the SDK lazily so input validation does not download a model."""
+        """Load the SDK lazily so input validation does not download a
+        model."""
         try:
-            sdk_class: Any = getattr(import_module("llm_sdk"), "Small_LLM_Model")
+            sdk_class: Any = getattr(
+                import_module("llm_sdk"), "Small_LLM_Model"
+            )
             self._sdk = sdk_class(model_name=self.model_name)
         except Exception as exc:
-            raise ModelLoadError(f"could not load {self.model_name}: {exc}") from exc
+            raise ModelLoadError(
+                f"could not load {self.model_name}: {exc}"
+            ) from exc
 
     def encode(self, text: str) -> list[int]:
         """Encode text and return a plain list of token identifiers."""
@@ -41,7 +45,9 @@ class QwenClient(BaseModel):
         """Return next-token logits through the SDK public API."""
         if self._sdk is None:
             raise ModelLoadError("model is not loaded")
-        return cast(list[float], self._sdk.get_logits_from_input_ids(input_ids))
+        return cast(
+            list[float], self._sdk.get_logits_from_input_ids(input_ids)
+        )
 
     def vocab_path(self) -> str:
         """Return the SDK-provided vocabulary path."""

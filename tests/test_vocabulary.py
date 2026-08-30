@@ -12,7 +12,9 @@ from src.vocabulary import TokenVocabulary, VocabularyError
 
 def write_vocabulary(path: Path, vocabulary: dict[str, int]) -> None:
     """Write a minimal byte-level vocabulary fixture."""
-    path.write_text(json.dumps(vocabulary, ensure_ascii=False), encoding="utf-8")
+    path.write_text(
+        json.dumps(vocabulary, ensure_ascii=False), encoding="utf-8"
+    )
 
 
 def test_byte_level_tokens_decode_to_real_text(tmp_path: Path) -> None:
@@ -36,7 +38,9 @@ def test_byte_level_tokens_decode_to_real_text(tmp_path: Path) -> None:
     assert vocabulary.skipped_tokens == 1
 
 
-def test_vocabulary_filters_whole_fragments_through_grammar(tmp_path: Path) -> None:
+def test_vocabulary_filters_whole_fragments_through_grammar(
+    tmp_path: Path,
+) -> None:
     """Keep only IDs whose complete decoded token preserves the schema."""
     path = tmp_path / "vocab.json"
     write_vocabulary(path, {'{"name":"': 0, "#": 1, "{": 2})

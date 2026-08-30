@@ -34,7 +34,12 @@ def test_grammar_accepts_complete_scalar_document_incrementally() -> None:
         '"count":-2,"ratio":1.25e+2,"enabled":false}}'
     )
     grammar = FunctionCallGrammar(functions=(function,))
-    for fragment in (document[:9], document[9:31], document[31:57], document[57:]):
+    for fragment in (
+        document[:9],
+        document[9:31],
+        document[31:57],
+        document[57:],
+    ):
         assert grammar.can_accept(fragment)
         grammar = grammar.advance(fragment)
 
@@ -85,7 +90,7 @@ def test_grammar_handles_empty_parameters_and_string_escapes() -> None:
     echo = make_function("fn_echo", text=TypeDefinition(type="string"))
     grammar = FunctionCallGrammar(functions=(echo,))
     assert grammar.can_accept(
-        '{"name":"fn_echo","parameters":{"text":"quote: \\\""}}'
+        '{"name":"fn_echo","parameters":{"text":"quote: \\""}}'
     )
     assert not grammar.can_accept(
         r'{"name":"fn_echo","parameters":{"text":"bad\x"}}'
@@ -106,15 +111,15 @@ def test_invalid_prefix_cannot_become_a_grammar_state() -> None:
         ("integer", "-999999999999999999"),
         ("boolean", "true"),
         ("boolean", "false"),
-        ("string", '"symbols: \\\" \\\\ / ç"'),
+        ("string", '"symbols: \\" \\\\ / ç"'),
         ("string", '""'),
     ],
 )
-def test_grammar_accepts_scalar_edge_cases(value_type: str, value: str) -> None:
+def test_grammar_accepts_scalar_edge_cases(
+    value_type: str, value: str
+) -> None:
     """Accept large, signed, escaped, Unicode, boolean, and empty scalar values."""
-    function = make_function(
-        "fn_value", value=TypeDefinition(type=value_type)
-    )
+    function = make_function("fn_value", value=TypeDefinition(type=value_type))
     document = f'{{"name":"fn_value","parameters":{{"value":{value}}}}}'
     grammar = FunctionCallGrammar(functions=(function,)).advance(document)
     assert grammar.status() is PrefixStatus.COMPLETE

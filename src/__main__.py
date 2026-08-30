@@ -16,7 +16,6 @@ from src.pipeline import generate_results, generate_results_with_traces
 from src.visualization import VisualizationError, write_generation_report
 from src.vocabulary import VocabularyError
 
-
 DEFAULT_DEFINITIONS = Path("data/input/functions_definition.json")
 DEFAULT_INPUT = Path("data/input/function_calling_tests.json")
 DEFAULT_OUTPUT = Path("data/output/function_calling_results.json")
@@ -25,7 +24,9 @@ DEFAULT_OUTPUT = Path("data/output/function_calling_results.json")
 def build_parser() -> argparse.ArgumentParser:
     """Build the project command-line parser."""
     parser = argparse.ArgumentParser(
-        description="Generate schema-constrained function calls with Qwen3-0.6B."
+        description=(
+            "Generate schema-constrained function calls with Qwen3-0.6B."
+        )
     )
     parser.add_argument(
         "--functions_definition",
@@ -34,7 +35,10 @@ def build_parser() -> argparse.ArgumentParser:
         help="JSON file containing available function definitions",
     )
     parser.add_argument(
-        "--input", type=Path, default=DEFAULT_INPUT, help="JSON prompt input file"
+        "--input",
+        type=Path,
+        default=DEFAULT_INPUT,
+        help="JSON prompt input file",
     )
     parser.add_argument(
         "--output", type=Path, default=DEFAULT_OUTPUT, help="result JSON file"
@@ -63,14 +67,18 @@ def main(argv: list[str] | None = None) -> int:
     try:
         functions = load_function_definitions(args.functions_definition)
         prompts = load_prompts(args.input)
-        print(f"Validated {len(functions)} functions and {len(prompts)} prompts.")
+        print(
+            f"Validated {len(functions)} functions and {len(prompts)} prompts."
+        )
 
         if args.validate_only:
             return 0
 
         if not prompts:
             if args.inspect_model:
-                raise InputFileError("cannot inspect the model without a prompt")
+                raise InputFileError(
+                    "cannot inspect the model without a prompt"
+                )
             write_results(args.output, [])
             if args.visualize is not None:
                 write_generation_report(args.visualize, [])

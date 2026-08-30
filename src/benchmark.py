@@ -16,7 +16,6 @@ from src.model import ModelLoadError, QwenClient
 from src.models import FunctionCallResult, ScalarValue
 from src.vocabulary import VocabularyError
 
-
 DEFAULT_CASES = Path("benchmarks/cases.json")
 DEFAULT_DEFINITIONS = Path("data/input/functions_definition.json")
 DEFAULT_REPORT = Path("benchmarks/latest_results.json")
@@ -56,7 +55,9 @@ class BenchmarkReport(BaseModel):
 
 def build_parser() -> argparse.ArgumentParser:
     """Build the benchmark command-line parser."""
-    parser = argparse.ArgumentParser(description="Benchmark constrained generation.")
+    parser = argparse.ArgumentParser(
+        description="Benchmark constrained generation."
+    )
     parser.add_argument("--cases", type=Path, default=DEFAULT_CASES)
     parser.add_argument(
         "--functions_definition", type=Path, default=DEFAULT_DEFINITIONS
@@ -70,7 +71,9 @@ def load_cases(path: Path) -> list[BenchmarkCase]:
     try:
         with path.open(encoding="utf-8") as stream:
             raw: object = json.load(stream)
-        cases = TypeAdapter(list[BenchmarkCase]).validate_python(raw, strict=True)
+        cases = TypeAdapter(list[BenchmarkCase]).validate_python(
+            raw, strict=True
+        )
     except FileNotFoundError as exc:
         raise InputFileError(f"benchmark file not found: {path}") from exc
     except json.JSONDecodeError as exc:
@@ -78,9 +81,13 @@ def load_cases(path: Path) -> list[BenchmarkCase]:
             f"invalid benchmark JSON at line {exc.lineno}, column {exc.colno}"
         ) from exc
     except ValidationError as exc:
-        raise InputFileError(f"invalid benchmark cases in {path}: {exc}") from exc
+        raise InputFileError(
+            f"invalid benchmark cases in {path}: {exc}"
+        ) from exc
     except OSError as exc:
-        raise InputFileError(f"could not read benchmark {path}: {exc}") from exc
+        raise InputFileError(
+            f"could not read benchmark {path}: {exc}"
+        ) from exc
     if not cases:
         raise InputFileError("benchmark must contain at least one case")
     return cases
@@ -94,7 +101,8 @@ def build_report(
     peak_memory_mib: float,
     failures: list[str],
 ) -> BenchmarkReport:
-    """Calculate validity and accuracy rates from independently labeled cases."""
+    """Calculate validity and accuracy rates from independently labeled
+    cases."""
     total = len(cases)
     if len(results) != total:
         raise ValueError("benchmark result count must match case count")
@@ -145,7 +153,8 @@ def build_report(
 
 
 def peak_memory_mib() -> float:
-    """Return maximum resident memory using platform-specific ru_maxrss units."""
+    """Return maximum resident memory using platform-specific ru_maxrss
+    units."""
     usage = float(resource.getrusage(resource.RUSAGE_SELF).ru_maxrss)
     if sys.platform == "darwin":
         return usage / (1024.0 * 1024.0)
@@ -160,7 +169,9 @@ def write_report(path: Path, report: BenchmarkReport) -> None:
             json.dump(report.model_dump(mode="json"), stream, indent=2)
             stream.write("\n")
     except OSError as exc:
-        raise InputFileError(f"could not write benchmark report {path}: {exc}") from exc
+        raise InputFileError(
+            f"could not write benchmark report {path}: {exc}"
+        ) from exc
 
 
 def run_benchmark(

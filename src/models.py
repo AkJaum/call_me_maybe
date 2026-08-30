@@ -13,7 +13,6 @@ from pydantic import (
     model_validator,
 )
 
-
 JsonType = Literal["string", "number", "integer", "boolean"]
 ScalarValue = str | int | float | bool
 
@@ -52,7 +51,8 @@ class FunctionCatalog(RootModel[list[FunctionDefinition]]):
 
     @model_validator(mode="after")
     def validate_catalog(self) -> "FunctionCatalog":
-        """Require at least one function and reject ambiguous duplicate names."""
+        """Require at least one function and reject ambiguous duplicate
+        names."""
         if not self.root:
             raise ValueError("at least one function definition is required")
         names = [function.name for function in self.root]
@@ -88,11 +88,16 @@ class FunctionCallResult(BaseModel):
     parameters: dict[str, ScalarValue]
 
     @model_validator(mode="after")
-    def validate_against_catalog(self, info: ValidationInfo) -> "FunctionCallResult":
-        """Validate the selected function and arguments using context definitions."""
+    def validate_against_catalog(
+        self, info: ValidationInfo
+    ) -> "FunctionCallResult":
+        """Validate the selected function and arguments using context
+        definitions."""
         context = info.context
         if not isinstance(context, dict) or "functions" not in context:
-            raise ValueError("function definitions are required for result validation")
+            raise ValueError(
+                "function definitions are required for result validation"
+            )
         functions = context["functions"]
         if not isinstance(functions, list) or not all(
             isinstance(function, FunctionDefinition) for function in functions
@@ -100,7 +105,8 @@ class FunctionCallResult(BaseModel):
             raise ValueError("invalid function definitions validation context")
 
         selected = next(
-            (function for function in functions if function.name == self.name), None
+            (function for function in functions if function.name == self.name),
+            None,
         )
         if selected is None:
             raise ValueError(f"unknown function: {self.name}")
@@ -146,7 +152,8 @@ def build_function_call_result(
     parameters: dict[str, ScalarValue],
     functions: list[FunctionDefinition],
 ) -> FunctionCallResult:
-    """Build a result only when it exactly satisfies a declared function schema."""
+    """Build a result only when it exactly satisfies a declared function
+    schema."""
     payload = {"prompt": prompt, "name": name, "parameters": parameters}
     return FunctionCallResult.model_validate(
         payload, strict=True, context={"functions": functions}
