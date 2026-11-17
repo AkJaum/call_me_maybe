@@ -5,6 +5,6 @@ __pycache__/
 .pytest_cache/
 .ruff_cache/
 data/output/
-moulinette/successfully/output/
-data.zip
-llm_sdk.zip
+/moulinette/
+/benchmarks/latest_results.json
+.DS_Store

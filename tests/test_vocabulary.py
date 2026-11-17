@@ -89,7 +89,7 @@ def test_invalid_vocabulary_is_reported_cleanly(tmp_path: Path) -> None:
 
 
 def test_malformed_vocabulary_json_reports_location(tmp_path: Path) -> None:
-    """Expose a readable JSON error instead of leaking the decoder exception."""
+    """Report JSON errors without leaking decoder exceptions."""
     path = tmp_path / "vocab.json"
     path.write_text("{]", encoding="utf-8")
     with pytest.raises(VocabularyError, match="line 1, column 2"):

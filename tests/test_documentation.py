@@ -8,7 +8,8 @@ def test_readme_contains_every_mandatory_section() -> None:
     """Keep the required English documentation present during later edits."""
     readme = Path("README.md").read_text(encoding="utf-8")
     assert readme.startswith(
-        "*This project has been created as part of the 42 curriculum by akjaum.*"
+        "*This project has been created as part of the 42 curriculum "
+        "by akjaum.*"
     )
     required_headings = [
         "## Description",

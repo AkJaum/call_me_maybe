@@ -57,7 +57,7 @@ def make_client(
     logits_call = 0
 
     def get_logits(input_ids: list[int]) -> list[float]:
-        """Prefer an invalid token globally and the planned valid token second."""
+        """Rank an invalid token first and the planned valid token second."""
         nonlocal logits_call
         logits = [-10.0] * vocab_size
         logits[vocabulary["#"]] = 100.0
@@ -133,7 +133,7 @@ def test_decoder_uses_model_logits_but_blocks_invalid_choice(
 def test_function_selection_scores_names_without_prefilling_common_prefix(
     tmp_path: Path,
 ) -> None:
-    """Let constrained model logits choose even when every name starts alike."""
+    """Let model logits choose names with a shared prefix."""
     fragments = ["fn_alpha", "fn_beta", "#"]
     path = tmp_path / "vocab.json"
     path.write_text(
@@ -182,7 +182,7 @@ def test_generation_stops_at_configured_token_limit(tmp_path: Path) -> None:
 
 
 def test_generation_reports_when_no_token_can_continue(tmp_path: Path) -> None:
-    """Return a controlled error when the vocabulary cannot start the grammar."""
+    """Report vocabularies that cannot start the grammar."""
     path = tmp_path / "vocab.json"
     path.write_text(json.dumps({"#": 0}), encoding="utf-8")
     decoder = ConstrainedDecoder.from_client(
@@ -236,7 +236,7 @@ def test_unique_three_character_copy_error_is_repaired() -> None:
 
 
 def test_near_verbatim_repair_does_not_guess() -> None:
-    """Keep derived and ambiguous values exactly as the model generated them."""
+    """Preserve model values when derived or ambiguous."""
     assert (
         _repair_near_verbatim_string(r"\d+", "Replace all numbers") == r"\d+"
     )

@@ -107,7 +107,7 @@ def test_cli_generation_failure_does_not_overwrite_output(
     monkeypatch: pytest.MonkeyPatch,
     capsys: pytest.CaptureFixture[str],
 ) -> None:
-    """Return a readable error and preserve prior output on partial batch failure."""
+    """Report batch failures and preserve prior output."""
     definitions, prompts = write_inputs(tmp_path, ["first", "second"])
     output = tmp_path / "calls.json"
     output.write_text('{"previous":true}\n', encoding="utf-8")

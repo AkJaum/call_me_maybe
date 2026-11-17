@@ -36,7 +36,7 @@ def test_catalog_rejects_empty_and_duplicate_functions() -> None:
 
 
 def test_complex_argument_types_are_explicitly_rejected() -> None:
-    """Keep nested array/object support out of the mandatory scalar contract."""
+    """Reject nested arrays and objects in the scalar contract."""
     for unsupported in ("array", "object"):
         with pytest.raises(ValidationError):
             TypeDefinition.model_validate({"type": unsupported})
@@ -76,7 +76,10 @@ def test_result_requires_exact_name_keys_and_types() -> None:
     for message, parameters in invalid_cases:
         with pytest.raises(ValidationError, match=message):
             build_function_call_result(
-                "Run it", "fn_example", parameters, [function]  # type: ignore[arg-type]
+                "Run it",
+                "fn_example",
+                parameters,  # type: ignore[arg-type]
+                [function],
             )
 
     with pytest.raises(ValidationError, match="unknown function"):

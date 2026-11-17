@@ -22,7 +22,7 @@ def make_function(
 
 
 def test_grammar_accepts_complete_scalar_document_incrementally() -> None:
-    """Accept a valid document one fragment at a time and finish exactly once."""
+    """Accept valid fragments and finish exactly once."""
     function = make_function(
         text=TypeDefinition(type="string"),
         count=TypeDefinition(type="integer"),
@@ -98,7 +98,7 @@ def test_grammar_handles_empty_parameters_and_string_escapes() -> None:
 
 
 def test_invalid_prefix_cannot_become_a_grammar_state() -> None:
-    """Protect callers from bypassing advance with an invalid initial prefix."""
+    """Reject invalid initial prefixes before advancing."""
     function = make_function("fn_ping")
     with pytest.raises(ValidationError, match="cannot produce"):
         FunctionCallGrammar(functions=(function,), prefix="not-json")
@@ -118,7 +118,7 @@ def test_invalid_prefix_cannot_become_a_grammar_state() -> None:
 def test_grammar_accepts_scalar_edge_cases(
     value_type: str, value: str
 ) -> None:
-    """Accept large, signed, escaped, Unicode, boolean, and empty scalar values."""
+    """Accept numeric edge cases, Unicode, booleans, and empty strings."""
     function = make_function("fn_value", value=TypeDefinition(type=value_type))
     document = f'{{"name":"fn_value","parameters":{{"value":{value}}}}}'
     grammar = FunctionCallGrammar(functions=(function,)).advance(document)

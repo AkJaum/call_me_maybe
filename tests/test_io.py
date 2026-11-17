@@ -115,7 +115,7 @@ def test_results_are_written_with_exact_keys_and_unicode(
 
 
 def test_failed_atomic_write_preserves_previous_target(tmp_path: Path) -> None:
-    """Remove temporary output and preserve the target when replacement fails."""
+    """Preserve the target and remove temporary output on failure."""
     output = tmp_path / "results.json"
     output.mkdir()
     marker = output / "marker"

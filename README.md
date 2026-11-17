@@ -57,9 +57,10 @@ expressions, or hardcoded answers.
 
 ```text
 .
-├── benchmarks/             # Labeled diagnostic cases and latest measurements
+├── Docs/                   # Subject, evaluation scale, history and measurements
+├── benchmarks/             # Labeled diagnostic cases (reports are generated)
 ├── data/input/             # Demonstration function definitions and prompts
-├── llm_sdk/                # SDK supplied with the subject
+├── llm_sdk/                # Minimal supplied SDK, required by the subject
 ├── src/
 │   ├── __main__.py         # CLI
 │   ├── benchmark.py        # Accuracy/performance benchmark
@@ -71,7 +72,11 @@ expressions, or hardcoded answers.
 │   ├── pipeline.py         # Multi-prompt application pipeline
 │   ├── visualization.py    # Optional safe HTML generation trace
 │   └── vocabulary.py       # Byte-level token ID to text mapping and cache
-└── tests/                  # Unit and integration tests
+├── tests/                  # Unit and integration tests
+├── tools/moulinette.zip     # Optional evaluator, extracted only on demand
+├── Makefile                # Installation, execution and verification commands
+├── pyproject.toml          # Project dependencies and tool settings
+└── uv.lock                 # Locked dependency versions for the application
 ```
 
 ## Instructions
@@ -86,11 +91,22 @@ expressions, or hardcoded answers.
 
 ### Installation
 
-Install the locked project dependencies:
+From a fresh clone, enter the repository and install its dependencies:
 
 ```bash
-uv sync
+git clone https://github.com/AkJaum/call_me_maybe.git
+cd call_me_maybe
+uv sync --locked
+uv run python -m src --validate-only
+uv run python -m src
 ```
+
+`uv sync` is also supported, as required by the subject. `--locked` additionally
+checks that the dependency manifest still matches the committed lockfile.
+`make install` runs `uv sync`. No archive extraction is needed to run the project.
+The validation command checks the input files without downloading model weights;
+the final command loads Qwen and generates
+`data/output/function_calling_results.json`.
 
 This also installs `accelerate`, which the bundled `llm_sdk` needs for the
 automatic CUDA `device_map` already present in the supplied SDK source. The
@@ -100,7 +116,10 @@ under `src/` imports none of them and interacts only with the SDK's public API;
 those framework dependencies remain internal to the supplied SDK boundary.
 
 The local `llm_sdk` package is connected through `pyproject.toml`; it must remain
-inside the repository.
+inside the repository: the subject explicitly requires `llm_sdk/` and reviewers
+install with `uv sync` alone. Only its source and package manifest are kept; the
+root `uv.lock` already locks the application's SDK dependencies. The redundant
+SDK archive and standalone SDK lockfile have been removed.
 
 ### Running
 
@@ -116,8 +135,16 @@ Equivalent Makefile command:
 make run
 ```
 
-Run and grade the bundled private Moulinette fixtures using exactly
-`moulinette/successfully/input/`:
+Run and grade the bundled private Moulinette fixtures:
+
+```bash
+make moulinette-prepare
+make moulinette-test
+```
+
+The first command extracts `tools/moulinette.zip` into the ignored `moulinette/`
+directory. `make moulinette-test` also prepares it automatically, so it can be
+used directly:
 
 ```bash
 make moulinette-test
@@ -125,7 +152,10 @@ make moulinette-test
 
 This writes `moulinette/successfully/output/function_calling_results.json` and
 then invokes the evaluator's actual `grade_student_answers --set private`
-command.
+command. The evaluator installs its own dependencies on first use and may need
+network access. Its sources, lockfile, inputs, and corrections are preserved in
+the archive; generated answers, caches, and virtual environments are excluded.
+See [`tools/README.md`](tools/README.md) for the archive layout and restoration.
 
 Use custom files:
 
@@ -386,7 +416,7 @@ Run mandatory lint and type checks:
 make lint
 ```
 
-The current suite contains 63 tests covering:
+The automated suite covers:
 
 - valid, malformed, missing, and non-UTF-8 input files;
 - replaceable repository inputs without assumptions about example contents;
@@ -411,8 +441,8 @@ vocabulary.
 
 ## Performance analysis
 
-The current acceptance measurements were made on the project development machine
-with CUDA inference. They include model loading and use one model instance per
+The historical acceptance measurements (2026-08-30) were made on the project
+development machine with CUDA inference. They include model loading and use one model instance per
 batch. Each set passed twice after the final changes; the table records the
 slower repeated run.
 
@@ -421,20 +451,22 @@ slower repeated run.
 | Private `successfully/input`, 11 prompts | 100% | 100% (11/11) | 100% (11/11) | 31.65 s | Not remeasured |
 | Default public data, 11 prompts | 100% | 100% (11/11) | 100% (11/11) | 47.64 s | Not remeasured |
 
-Both supplied evaluator workloads satisfy the subject's five-minute target with
-substantial margin. The checked-in `benchmarks/latest_results.json` is an older
-CPU diagnostic measurement and is kept as development history; the two complete
-Moulinette runs above are the current acceptance evidence. Runtime and small-model
-accuracy can still vary with a different machine, function catalog, or prompt set.
+Both supplied evaluator workloads met the subject's five-minute target on that
+machine. [`Docs/measurements/benchmark_cpu.json`](Docs/measurements/benchmark_cpu.json)
+preserves an older CPU diagnostic measurement as development history. These
+measurements were not repeated as part of repository cleanup. Runtime and
+small-model accuracy can still vary with a different machine, function catalog, or prompt set.
 
-Run the same measurement with:
+Generate a new diagnostic measurement with the labeled benchmark cases (a
+separate workload from the two complete evaluator sets above):
 
 ```bash
 make benchmark
 ```
 
-The benchmark returns status 0 only if JSON/schema validity is 100%, function and
-argument accuracy are at least 90%, and total duration is below 300 seconds.
+The generated report is written to `benchmarks/latest_results.json` and ignored
+by Git. The benchmark returns status 0 only if JSON/schema validity is 100%,
+function and argument accuracy are at least 90%, and total duration is below 300 seconds.
 
 The main performance constraint is the supplied public SDK interface:
 `get_logits_from_input_ids()` recomputes the complete growing sequence for every
@@ -552,4 +584,4 @@ validated with real Qwen runs. AI output was not treated as evidence: performanc
 and accuracy statements in this README come from recorded local executions.
 
 For a chronological explanation of what changed, why, and how, see
-[`Log_de_desenvolvimento.md`](Log_de_desenvolvimento.md).
+[`Docs/Log_de_desenvolvimento.md`](Docs/Log_de_desenvolvimento.md).

@@ -3,7 +3,7 @@ MOULINETTE_DATA := moulinette/successfully
 MOULINETTE_OUTPUT := $(MOULINETTE_DATA)/output/function_calling_results.json
 
 .PHONY: install run debug clean lint lint-strict test model-check benchmark \
-	visualize moulinette-run moulinette-test
+	visualize moulinette-prepare moulinette-run moulinette-test
 
 install:
 	uv sync
@@ -23,7 +23,12 @@ benchmark:
 visualize:
 	$(PYTHON) -m src --visualize data/output/generation_trace.html
 
-moulinette-run:
+moulinette-prepare:
+	@test -d moulinette || $(PYTHON) -m zipfile -e tools/moulinette.zip .
+	@test -f $(MOULINETTE_DATA)/input/functions_definition.json
+	@test -f $(MOULINETTE_DATA)/input/function_calling_tests.json
+
+moulinette-run: moulinette-prepare
 	$(PYTHON) -m src \
 		--functions_definition $(MOULINETTE_DATA)/input/functions_definition.json \
 		--input $(MOULINETTE_DATA)/input/function_calling_tests.json \

@@ -29,7 +29,7 @@ def make_result(prompt: str, value: float) -> FunctionCallResult:
 
 
 def test_report_calculates_rates_and_subject_targets() -> None:
-    """Calculate accuracy against labels without feeding labels to generation."""
+    """Measure accuracy without feeding labels to generation."""
     cases = [
         BenchmarkCase(
             prompt="one",
